@@ -36,6 +36,10 @@ cd backend
 `render.yaml` + `backend/Dockerfile` deploy the API with a managed PostgreSQL database and a generated `API_KEY`.
 See **[docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md)** for the step-by-step guide.
 
+## Installable Android app (APK)
+
+See **[docs/BUILD-APK.md](docs/BUILD-APK.md)**: Expo's cloud builds an `.apk` you install on your phone, no Expo Go needed.
+
 ## 2. Run the mobile app
 
 Requires Node 18+ and the **Expo Go** app on your phone.
