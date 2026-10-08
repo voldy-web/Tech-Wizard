@@ -28,6 +28,19 @@ Everything is described in `render.yaml` at the repo root, so you set it up once
 
 Tables are created automatically on first start (`ddl-auto: update`). No sample data is added in production.
 
+## If Render says "cannot have more than one active free tier database"
+Your Render account already has its one free database. Either pay for a Render database (change `plan: free` for
+`tech-wizard-db` in `render.yaml` to a paid plan), or use a database from another provider with the second blueprint:
+
+1. Create a free Postgres database (for example at neon.com) and copy its connection details.
+2. Build the three values Render will ask for:
+   - `DB_URL`  = `jdbc:postgresql://HOST/DBNAME?sslmode=require`  (HOST and DBNAME from the provider; keep `sslmode=require`; leave out extras such as `channel_binding`)
+   - `DB_USER` = the database user
+   - `DB_PASSWORD` = its password
+3. In Render: New + -> Blueprint -> pick the repo -> set **Blueprint Path** to `render.external-db.yaml` -> enter those three values -> Deploy.
+
+Everything else (API key, health check, mobile setup) is identical.
+
 ## How the pieces connect
 | Setting | Where it comes from |
 |---|---|

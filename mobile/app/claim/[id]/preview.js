@@ -24,8 +24,8 @@ export default function CertificatePreview() {
     try { await fn(); } catch (e) { Alert.alert('Something went wrong', e?.message || String(e)); } finally { setBusy(null); }
   };
 
-  const exportPdf = run('export', async () => { const uri = await createPdf(html, data.claim.reference); await sharePdf(uri, 'Save or send certificate'); });
-  const share = run('share', async () => { const uri = await createPdf(html, data.claim.reference); await sharePdf(uri, `Certificate ${data.claim.reference}`); });
+  const exportPdf = run('export', async () => { const pdf = await createPdf(html, data.claim.reference); await sharePdf(pdf, 'Save or send certificate'); });
+  const share = run('share', async () => { const pdf = await createPdf(html, data.claim.reference); await sharePdf(pdf, `Certificate ${data.claim.reference}`); });
   const print = run('print', async () => { await printCertificate(html); });
 
   return (

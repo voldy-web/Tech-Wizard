@@ -7,9 +7,9 @@ import { formatAmount, formatMoney, hasMismatch, rowAmount, toPesewas } from '..
 const numeric = (t) => t.replace(/[^0-9.,]/g, '');
 
 const BORDER = '#C3D2E3';
-const COL = { item: 38, qty: 62, price: 84, amount: 96 };   // Description takes the rest, so no sideways scrolling
+const COL = { item: 30, qty: 52, price: 72, amount: 86 };   // Description takes the rest, so no sideways scrolling
 const cell = { borderRightWidth: 1, borderRightColor: BORDER, justifyContent: 'center' };
-const input = { minWidth: 0, paddingHorizontal: 6, paddingVertical: 10, fontSize: 15, color: colors.text };
+const input = { minWidth: 0, paddingHorizontal: 5, paddingVertical: 10, fontSize: 14, color: colors.text };
 
 function HeadCell({ children, w, align = 'center', flex }) {
   return (
