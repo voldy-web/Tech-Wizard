@@ -94,7 +94,7 @@ export function buildCertificateHtml(claim, settings = {}) {
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=794, initial-scale=1"/>
+<meta name="viewport" content="width=794, minimum-scale=0.1, maximum-scale=5, user-scalable=yes"/>
 <title>Certificate of Claim ${esc(claim.reference)}</title>
 <style>
   @page { size: A4; margin: 16mm 14mm 16mm 14mm; }

@@ -1,9 +1,15 @@
-jest.mock('expo-print', () => ({ printToFileAsync: jest.fn(async () => ({ uri: 'file:///cache/Print/abc.pdf' })), printAsync: jest.fn() }));
+jest.mock('expo-print', () => ({
+  printToFileAsync: jest.fn(async () => ({ uri: 'file:///cache/Print/abc.pdf', base64: 'JVBERi0xLjQ=' })),
+  printAsync: jest.fn(),
+}));
 jest.mock('expo-sharing', () => ({ isAvailableAsync: jest.fn(async () => true), shareAsync: jest.fn() }));
 jest.mock('expo-file-system/legacy', () => ({
-  cacheDirectory: 'file:///cache/', deleteAsync: jest.fn(async () => {}), copyAsync: jest.fn(async () => {}),
+  cacheDirectory: 'file:///cache/',
+  EncodingType: { Base64: 'base64' },
+  writeAsStringAsync: jest.fn(async () => {}),
 }));
 
+const Print = require('expo-print');
 const Sharing = require('expo-sharing');
 const FileSystem = require('expo-file-system/legacy');
 const { createPdf, sharePdf } = require('../src/lib/pdf');
@@ -11,21 +17,31 @@ const { createPdf, sharePdf } = require('../src/lib/pdf');
 describe('PDF export and share', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test('creates the PDF and a friendly-named copy', async () => {
+  test('asks for the PDF as base64 and writes it into the app cache under a friendly name', async () => {
     const pdf = await createPdf('<html/>', 'TW-ELR-009');
-    expect(pdf.uri).toBe('file:///cache/Print/abc.pdf');
+    expect(Print.printToFileAsync).toHaveBeenCalledWith(expect.objectContaining({ base64: true, width: 595, height: 842 }));
+    expect(FileSystem.writeAsStringAsync).toHaveBeenCalledWith(
+      'file:///cache/Certificate-TW-ELR-009.pdf', 'JVBERi0xLjQ=', { encoding: 'base64' });
     expect(pdf.named).toBe('file:///cache/Certificate-TW-ELR-009.pdf');
+    expect(pdf.uri).toBe('file:///cache/Print/abc.pdf');
   });
 
-  test('keeps working when the rename fails', async () => {
-    FileSystem.copyAsync.mockRejectedValueOnce(new Error('nope'));
+  test('keeps working when writing the named file fails', async () => {
+    FileSystem.writeAsStringAsync.mockRejectedValueOnce(new Error('nope'));
     const pdf = await createPdf('<html/>', 'X');
     expect(pdf.named).toBeNull();
     await sharePdf(pdf);
     expect(Sharing.shareAsync).toHaveBeenCalledWith('file:///cache/Print/abc.pdf', expect.any(Object));
   });
 
-  test('falls back to the original file when Android rejects the renamed copy', async () => {
+  test('shares the app-written file first', async () => {
+    const pdf = await createPdf('<html/>', 'X');
+    await sharePdf(pdf);
+    expect(Sharing.shareAsync).toHaveBeenCalledTimes(1);
+    expect(Sharing.shareAsync).toHaveBeenCalledWith('file:///cache/Certificate-X.pdf', expect.objectContaining({ mimeType: 'application/pdf' }));
+  });
+
+  test('falls back to the original file when the first is rejected', async () => {
     Sharing.shareAsync
       .mockRejectedValueOnce(new Error('Not allowed to read file under given URL.'))
       .mockResolvedValueOnce(undefined);

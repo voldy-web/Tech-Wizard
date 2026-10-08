@@ -21,7 +21,9 @@ export default function CertificatePreview() {
 
   const run = (kind, fn) => async () => {
     setBusy(kind);
-    try { await fn(); } catch (e) { Alert.alert('Something went wrong', e?.message || String(e)); } finally { setBusy(null); }
+    try { await fn(); } catch (e) {
+      Alert.alert('Could not share the PDF', `${e?.message || String(e)}\n\nTip: tap "Print", then choose "Save as PDF" in the print window.`);
+    } finally { setBusy(null); }
   };
 
   const exportPdf = run('export', async () => { const pdf = await createPdf(html, data.claim.reference); await sharePdf(pdf, 'Save or send certificate'); });

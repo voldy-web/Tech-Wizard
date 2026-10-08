@@ -69,7 +69,7 @@ const assert = require('assert');
   });
   await step('back to editor keeps the data', async () => {
     await p.goBack();
-    await text('VALUATION SUMMARY');
+    await text('GRAND TOTAL');
     await text(/GH₵ 2,140\.00/);
   });
   await step('approvals tab -> approval screen -> log final payment -> PAID', async () => {

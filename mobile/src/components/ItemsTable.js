@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { Icon, IconButton } from './ui';
 import { colors } from '../theme';
@@ -7,7 +7,7 @@ import { formatAmount, formatMoney, hasMismatch, rowAmount, toPesewas } from '..
 const numeric = (t) => t.replace(/[^0-9.,]/g, '');
 
 const BORDER = '#C3D2E3';
-const COL = { item: 30, qty: 52, price: 72, amount: 86 };   // Description takes the rest, so no sideways scrolling
+const COL = { item: 38, qty: 56, price: 72, amount: 86 };   // Description takes the rest, so no sideways scrolling
 const cell = { borderRightWidth: 1, borderRightColor: BORDER, justifyContent: 'center' };
 const input = { minWidth: 0, paddingHorizontal: 5, paddingVertical: 10, fontSize: 14, color: colors.text };
 
@@ -27,6 +27,10 @@ function HeadCell({ children, w, align = 'center', flex }) {
  * Lump-sum rows: type the Amount directly (shows 1 Item).
  */
 export default function ItemsTable({ items, currency, readOnly, onChange, onDuplicate, onDelete, onToggleType, onPickUnit, onAdd }) {
+  // Only the row being edited shows its extra controls (type, remarks, copy, delete) - keeps the table clean.
+  const [openKey, setOpenKey] = useState(null);
+  const open = (key) => () => setOpenKey(key);
+
   return (
     <View style={{ borderWidth: 1, borderColor: BORDER, borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' }}>
       <View style={{ backgroundColor: '#2E75B6', paddingVertical: 7 }}>
@@ -49,62 +53,69 @@ export default function ItemsTable({ items, currency, readOnly, onChange, onDupl
       {items.map((it, i) => {
         const lump = it.type === 'LUMP_SUM';
         const bad = hasMismatch(it);
+        const isOpen = openKey === it.key && !readOnly;
         const bg = bad ? colors.errorSoft : i % 2 ? '#F0F4FA' : '#fff';
         return (
           <View key={it.key} style={{ backgroundColor: bg, borderTopWidth: 1, borderTopColor: BORDER }}>
-            <View style={{ flexDirection: 'row', minHeight: 46 }}>
-              <View style={[cell, { width: COL.item, alignItems: 'center' }]}>
-                <Text style={{ fontWeight: '700', color: colors.text }}>{i + 1}</Text>
-              </View>
+            <View style={{ flexDirection: 'row', minHeight: 50 }}>
+              {/* tap the number to show / hide this row's extra controls */}
+              <Pressable onPress={() => setOpenKey(isOpen ? null : it.key)} style={[cell, { width: COL.item, alignItems: 'center' }]}
+                accessibilityLabel={`Row ${i + 1} options`}>
+                <Text style={{ fontWeight: '700', color: isOpen ? colors.primary : colors.text }}>{i + 1}</Text>
+              </Pressable>
               <View style={[cell, { flex: 1 }]}>
                 <TextInput value={it.description} onChangeText={(t) => onChange(it.key, { description: t })} editable={!readOnly}
-                  placeholder="Description" placeholderTextColor="#9AA0B4" multiline style={input} />
+                  onFocus={open(it.key)} placeholder="Description" placeholderTextColor="#9AA0B4" multiline style={input} />
               </View>
-              <View style={[cell, { width: COL.qty }]}>
-                {lump ? <Text style={{ textAlign: 'center', color: colors.textMuted, fontSize: 13 }}>1 Item</Text> : (
-                  <TextInput value={it.qty} onChangeText={(t) => onChange(it.key, { qty: numeric(t) })} editable={!readOnly}
-                    keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#9AA0B4" style={[input, { textAlign: 'center' }]} />
+              <View style={[cell, { width: COL.qty, alignItems: 'center' }]}>
+                {lump ? <Text style={{ color: colors.textMuted, fontSize: 12 }}>1 Item</Text> : (
+                  <>
+                    <TextInput value={it.qty} onChangeText={(t) => onChange(it.key, { qty: numeric(t) })} editable={!readOnly} onFocus={open(it.key)}
+                      keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#9AA0B4" style={[input, { textAlign: 'center', paddingBottom: 0, width: '100%' }]} />
+                    <Pressable disabled={readOnly} onPress={() => onPickUnit(it.key)} hitSlop={6}>
+                      <Text style={{ fontSize: 11, color: it.unit ? colors.primary : '#9AA0B4', fontWeight: '600', paddingBottom: 6 }} numberOfLines={1}>
+                        {it.unit || 'unit ▾'}
+                      </Text>
+                    </Pressable>
+                  </>
                 )}
               </View>
               <View style={[cell, { width: COL.price }]}>
                 {lump ? <Text style={{ textAlign: 'right', paddingRight: 8, color: colors.textMuted }}>—</Text> : (
-                  <TextInput value={it.rate} onChangeText={(t) => onChange(it.key, { rate: numeric(t) })} editable={!readOnly}
+                  <TextInput value={it.rate} onChangeText={(t) => onChange(it.key, { rate: numeric(t) })} editable={!readOnly} onFocus={open(it.key)}
                     keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#9AA0B4" style={[input, { textAlign: 'right' }]} />
                 )}
               </View>
               <View style={{ width: COL.amount, justifyContent: 'center', backgroundColor: lump ? undefined : 'rgba(46,117,182,0.08)' }}>
                 {lump ? (
-                  <TextInput value={it.amount} onChangeText={(t) => onChange(it.key, { amount: numeric(t) })} editable={!readOnly}
+                  <TextInput value={it.amount} onChangeText={(t) => onChange(it.key, { amount: numeric(t) })} editable={!readOnly} onFocus={open(it.key)}
                     keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#9AA0B4" style={[input, { textAlign: 'right', fontWeight: '700' }]} />
                 ) : (
-                  <Text style={{ textAlign: 'right', paddingRight: 8, fontWeight: '700', color: bad ? colors.error : colors.text }}>
+                  <Text style={{ textAlign: 'right', paddingRight: 8, fontWeight: '700', color: bad ? colors.error : colors.text, fontSize: 13 }}>
                     {bad ? '⚠ ' : ''}{formatAmount(rowAmount(it))}
                   </Text>
                 )}
               </View>
             </View>
 
-            {/* second line: unit · type · remarks · actions */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 6, paddingRight: 2, paddingBottom: 6 }}>
-              <Pressable disabled={readOnly || lump} onPress={() => onPickUnit(it.key)}
-                style={{ backgroundColor: lump ? 'transparent' : colors.container, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6, minWidth: 54, alignItems: 'center' }}>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: lump || !it.unit ? colors.textMuted : colors.text }}>
-                  {lump ? 'Item' : `${it.unit || 'Unit'} ▾`}
-                </Text>
-              </Pressable>
-              <Pressable disabled={readOnly} onPress={() => onToggleType(it.key)} accessibilityLabel="Toggle measured or lump sum"
-                style={{ backgroundColor: lump ? colors.accentSoft : colors.mintSoft, paddingHorizontal: 7, paddingVertical: 5, borderRadius: 6 }}>
-                <Text style={{ fontSize: 10, fontWeight: '800', color: lump ? colors.brown : colors.primary }}>{lump ? 'LUMP SUM' : 'MEASURED'}</Text>
-              </Pressable>
-              <TextInput value={it.remarks} onChangeText={(t) => onChange(it.key, { remarks: t })} editable={!readOnly}
-                placeholder="Remarks" placeholderTextColor="#9AA0B4" style={{ flex: 1, minWidth: 0, fontSize: 13, color: colors.textMuted, paddingVertical: 4 }} />
-              {readOnly ? null : (
-                <>
-                  <IconButton icon="content-copy" size={16} bg="transparent" color={colors.textMuted} onPress={() => onDuplicate(it.key)} />
-                  <IconButton icon="trash-can-outline" size={16} bg="transparent" color={colors.textMuted} onPress={() => onDelete(it.key)} />
-                </>
-              )}
-            </View>
+            {/* closed: show remarks (if any) as a quiet line */}
+            {!isOpen && it.remarks ? (
+              <Text style={{ color: colors.textMuted, fontSize: 12, paddingHorizontal: 10, paddingBottom: 6 }} numberOfLines={1}>↳ {it.remarks}</Text>
+            ) : null}
+
+            {/* open: type · remarks · copy · delete */}
+            {isOpen ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 2, paddingBottom: 8 }}>
+                <Pressable onPress={() => onToggleType(it.key)} accessibilityLabel="Toggle measured or lump sum"
+                  style={{ backgroundColor: lump ? colors.accentSoft : colors.mintSoft, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '800', color: lump ? colors.brown : colors.primary }}>{lump ? 'LUMP SUM' : 'MEASURED'}</Text>
+                </Pressable>
+                <TextInput value={it.remarks} onChangeText={(t) => onChange(it.key, { remarks: t })} onFocus={open(it.key)}
+                  placeholder="Remarks" placeholderTextColor="#9AA0B4" style={{ flex: 1, minWidth: 0, fontSize: 13, color: colors.textMuted, paddingVertical: 4 }} />
+                <IconButton icon="content-copy" size={16} bg="transparent" color={colors.textMuted} onPress={() => onDuplicate(it.key)} />
+                <IconButton icon="trash-can-outline" size={16} bg="transparent" color={colors.textMuted} onPress={() => onDelete(it.key)} />
+              </View>
+            ) : null}
           </View>
         );
       })}

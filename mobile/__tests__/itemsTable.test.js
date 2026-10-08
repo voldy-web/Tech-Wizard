@@ -18,7 +18,8 @@ describe('ItemsTable (paper-certificate style entry)', () => {
     expect(screen.getByText('54,000.00')).toBeTruthy();          // 450 x 120, calculated
     expect(screen.getByDisplayValue('16050')).toBeTruthy();      // lump sum typed directly
     expect(screen.getByText('1 Item')).toBeTruthy();
-    expect(screen.getByDisplayValue('Grade 42.5R')).toBeTruthy();
+    expect(screen.getByText('↳ Grade 42.5R')).toBeTruthy();   // remarks shown quietly when the row is closed
+    expect(screen.getByText('Bags')).toBeTruthy();            // unit sits under the quantity
   });
 
   test('typing reports the change for the right row and field', () => {
@@ -32,6 +33,24 @@ describe('ItemsTable (paper-certificate style entry)', () => {
     expect(h.onAdd).toHaveBeenCalledWith('MEASURED');
     fireEvent.press(screen.getByText('Add lump sum'));
     expect(h.onAdd).toHaveBeenCalledWith('LUMP_SUM');
+  });
+
+  test('extra controls appear only for the row being edited', () => {
+    const h = handlers();
+    render(<ItemsTable items={items} currency="GH₵" {...h} />);
+    expect(screen.queryByText('MEASURED')).toBeNull();          // closed: no type chip, no copy/delete
+    fireEvent.press(screen.getByLabelText('Row 2 options'));    // tap the row number
+    expect(screen.getByText('MEASURED')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Toggle measured or lump sum'));
+    expect(h.onToggleType).toHaveBeenCalledWith('b');
+    fireEvent.press(screen.getByLabelText('Row 2 options'));    // tap again to close
+    expect(screen.queryByText('MEASURED')).toBeNull();
+  });
+
+  test('focusing a field opens that row', () => {
+    render(<ItemsTable items={items} currency="GH₵" {...handlers()} />);
+    fireEvent(screen.getByDisplayValue('450'), 'focus');
+    expect(screen.getByText('MEASURED')).toBeTruthy();
   });
 
   test('read-only hides the add buttons', () => {

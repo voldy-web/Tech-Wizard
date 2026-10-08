@@ -49,6 +49,7 @@ export default function ClaimEditor() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [unitFor, setUnitFor] = useState(null);      // item key whose unit is being chosen
   const [busy, setBusy] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [view, setView] = useState('table');         // 'table' (spreadsheet-style) | 'cards' (drag to reorder)
 
   const latest = useRef({ header: null, items: [] });
@@ -75,6 +76,7 @@ export default function ClaimEditor() {
       };
       const its = (c.items || []).map(fromServerItem);
       setHeader(h); setItems(its);
+      setDetailsOpen(its.length === 0);
       latest.current = { header: h, items: its };
       dirty.current = false;
       setSaveState('saved'); setError(null);
@@ -241,24 +243,34 @@ export default function ClaimEditor() {
       ) : null}
 
       <Card style={{ gap: 12 }}>
-        <Label>Contract / site</Label>
-        <View style={{ backgroundColor: colors.container, borderRadius: 12, padding: 14 }}>
-          <Text style={{ fontSize: 17, fontWeight: '700', color: colors.text }}>{claim.projectName}</Text>
-          {claim.client ? <Text style={{ color: colors.textMuted }}>{claim.client}</Text> : null}
-        </View>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Field label="Valuation week" value={header.weekNumber} onChangeText={(t) => setHeaderField('weekNumber')(t.replace(/\D/g, ''))}
-            keyboardType="number-pad" editable={!readOnly} style={{ flex: 1 }} />
-          <Field label="Levy / retention" value={header.levyPercent} onChangeText={(t) => setHeaderField('levyPercent')(numeric(t))}
-            keyboardType="decimal-pad" suffix="%" editable={!readOnly} style={{ flex: 1 }} />
-        </View>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <DateField label="Period from" value={header.periodFrom} onChange={setHeaderField('periodFrom')} editable={!readOnly} style={{ flex: 1 }} />
-          <DateField label="Period to" value={header.periodTo} onChange={setHeaderField('periodTo')} editable={!readOnly} style={{ flex: 1 }} />
-        </View>
-        <Text style={{ color: colors.textMuted, fontSize: 12 }}>Claim period: {fmtPeriod(header.periodFrom, header.periodTo)}</Text>
-        <Field label="Prepared by" value={header.preparedBy} onChangeText={setHeaderField('preparedBy')} editable={!readOnly} placeholder="Name of preparer" />
-        <DateField label="Date prepared" value={header.datePrepared} onChange={setHeaderField('datePrepared')} editable={!readOnly} />
+        <Pressable onPress={() => setDetailsOpen((o) => !o)} accessibilityLabel="Show or hide claim details"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Label>Claim details</Label>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: colors.text }} numberOfLines={1}>{claim.projectName}</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 13 }} numberOfLines={1}>
+              Week {header.weekNumber || '?'} · {fmtPeriod(header.periodFrom, header.periodTo)} · levy {header.levyPercent || 0}%
+            </Text>
+          </View>
+          <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>{detailsOpen ? 'Hide' : 'Edit'}</Text>
+          <Icon name={detailsOpen ? 'chevron-up' : 'chevron-down'} size={22} />
+        </Pressable>
+        {detailsOpen ? (
+          <>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Field label="Valuation week" value={header.weekNumber} onChangeText={(t) => setHeaderField('weekNumber')(t.replace(/\D/g, ''))}
+                keyboardType="number-pad" editable={!readOnly} style={{ flex: 1 }} />
+              <Field label="Levy / retention" value={header.levyPercent} onChangeText={(t) => setHeaderField('levyPercent')(numeric(t))}
+                keyboardType="decimal-pad" suffix="%" editable={!readOnly} style={{ flex: 1 }} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <DateField label="Period from" value={header.periodFrom} onChange={setHeaderField('periodFrom')} editable={!readOnly} style={{ flex: 1 }} />
+              <DateField label="Period to" value={header.periodTo} onChange={setHeaderField('periodTo')} editable={!readOnly} style={{ flex: 1 }} />
+            </View>
+            <Field label="Prepared by" value={header.preparedBy} onChangeText={setHeaderField('preparedBy')} editable={!readOnly} placeholder="Name of preparer" />
+            <DateField label="Date prepared" value={header.datePrepared} onChange={setHeaderField('datePrepared')} editable={!readOnly} />
+          </>
+        ) : null}
       </Card>
 
       {!readOnly && (settings?.commonItems?.length || 0) > 0 ? (
@@ -282,6 +294,7 @@ export default function ClaimEditor() {
         </View>
       ) : null}
 
+      {view === 'cards' ? (
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={{ fontSize: 19, fontWeight: '700', color: colors.text }}>Itemised Schedule of Works</Text>
@@ -290,6 +303,8 @@ export default function ClaimEditor() {
           </View>
         </View>
       </View>
+      ) : null}
+
       <View style={{ flexDirection: 'row', backgroundColor: colors.containerHigh, borderRadius: radius.md, padding: 3 }}>
         {[['table', 'Table', 'table'], ['cards', 'Cards (drag to reorder)', 'view-agenda-outline']].map(([k, label, icon]) => (
           <Pressable key={k} onPress={() => setView(k)} style={{
@@ -381,24 +396,18 @@ export default function ClaimEditor() {
         {/* Sticky valuation summary */}
         <View style={{
           backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
-          paddingHorizontal: space.lg, paddingTop: 8, paddingBottom: 14, gap: 8,
+          paddingHorizontal: space.lg, paddingTop: 10, paddingBottom: 12, gap: 8,
           shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, elevation: 12,
         }}>
-          <Pressable onPress={() => setSheetOpen((o) => !o)} style={{ alignItems: 'center', paddingVertical: 4 }} accessibilityLabel="Toggle breakdown">
-            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.outline }} />
-          </Pressable>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Icon name="wallet-outline" size={20} color={colors.text} />
-              <Text style={{ fontWeight: '800', letterSpacing: 0.5, color: colors.text }}>VALUATION SUMMARY</Text>
-            </View>
-            <Pressable onPress={() => setSheetOpen((o) => !o)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ color: colors.primary, fontWeight: '700' }}>{sheetOpen ? 'Hide' : 'View'} breakdown</Text>
+          {view === 'cards' ? (
+            <Pressable onPress={() => setSheetOpen((o) => !o)} hitSlop={8} accessibilityLabel="Toggle breakdown"
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>{sheetOpen ? 'Hide' : 'View'} breakdown</Text>
               <Icon name={sheetOpen ? 'chevron-down' : 'chevron-up'} size={20} />
             </Pressable>
-          </View>
+          ) : null}
 
-          {sheetOpen ? (
+          {sheetOpen && view === 'cards' ? (
             <View style={{ gap: 8 }}>
               <Row label={`Sub-total (${items.length} item${items.length === 1 ? '' : 's'})`} value={formatMoney(totals.subTotal, currency)} />
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -422,24 +431,21 @@ export default function ClaimEditor() {
             </View>
           ) : null}
 
-          <View style={{ backgroundColor: colors.primary, borderRadius: 14, padding: 14, gap: 2 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ color: colors.mint, fontWeight: '800', fontSize: 12, letterSpacing: 0.6 }}>GRAND AMOUNT CERTIFIED</Text>
-              <Text style={{ color: '#CDEAE5', fontSize: 12 }}>Net payable</Text>
-            </View>
-            <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', textAlign: 'right' }} testID="grand-total">
+          <View style={{ backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={{ color: colors.mint, fontWeight: '800', fontSize: 11, letterSpacing: 0.5, flexShrink: 1 }}>GRAND TOTAL</Text>
+            <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', textAlign: 'right', flex: 1 }} testID="grand-total" numberOfLines={1}>
               {formatMoney(totals.grandTotal, currency)}
             </Text>
           </View>
 
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Button title="Draft" icon="content-save-outline" variant="soft" style={{ flex: 1 }} disabled={readOnly}
+            <Button title="Draft" icon="content-save-outline" variant="soft" compact style={{ flex: 1 }} disabled={readOnly}
               onPress={async () => { await flush(); }} />
-            <Button title="Preview" icon="eye-outline" variant="soft" style={{ flex: 1 }} onPress={goPreview} />
+            <Button title="Preview" icon="eye-outline" variant="soft" compact style={{ flex: 1 }} onPress={goPreview} />
             {claim.status === 'DRAFT' ? (
-              <Button title="Submit" icon="send-outline" style={{ flex: 1 }} loading={busy} onPress={submit} />
+              <Button title="Submit" icon="send-outline" compact style={{ flex: 1 }} loading={busy} onPress={submit} />
             ) : (
-              <Button title="Approval" icon="clipboard-check-outline" style={{ flex: 1 }} onPress={() => router.push(`/claim/${id}/approval`)} />
+              <Button title="Approval" icon="clipboard-check-outline" compact style={{ flex: 1 }} onPress={() => router.push(`/claim/${id}/approval`)} />
             )}
           </View>
         </View>
