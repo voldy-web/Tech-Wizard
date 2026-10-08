@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: tech-wizard
+  datasource:
+    url: jdbc:h2:file:./data/techwizard;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  h2:
+    console:
+      enabled: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+  jackson:
+    default-property-inclusion: always
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+  compression:
+    enabled: true
+
+# Comma-separated list of allowed origins. "*" = any (development only).
+techwizard:
+  cors:
+    allowed-origins: "*"
+  # If set, every /api request (except /api/health) must send header  X-API-Key: <value>.
+  # Leave empty for local development.
+  api-key: ${API_KEY:}

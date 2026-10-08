@@ -147,3 +147,12 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Tech Wizard
+backend/target/
+backend/data/
+mobile/node_modules/
+mobile/.expo/
+downloads/
+*.code-workspace.bak
+mobile/dist/

@@ -1,0 +1,20 @@
+{
+  "folders": [
+    { "name": "Tech-Wizard (root)", "path": "." },
+    { "name": "backend (Spring Boot)", "path": "backend" },
+    { "name": "mobile (Expo)", "path": "mobile" }
+  ],
+  "settings": {
+    "files.exclude": { "**/node_modules": true, "**/target": true },
+    "java.configuration.updateBuildConfiguration": "automatic"
+  },
+  "extensions": {
+    "recommendations": [
+      "vscjava.vscode-java-pack",
+      "vmware.vscode-boot-dev-pack",
+      "dsznajder.es7-react-js-snippets",
+      "esbenp.prettier-vscode",
+      "expo.vscode-expo-tools"
+    ]
+  }
+}

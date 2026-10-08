@@ -1,0 +1,19 @@
+# Production profile: SPRING_PROFILES_ACTIVE=postgres   (set automatically by render.yaml / Dockerfile)
+spring:
+  datasource:
+    # Either give a full JDBC url in DB_URL, or the separate parts (Render's blueprint supplies these).
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:techwizard}}
+    username: ${DB_USER:techwizard}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+  jpa:
+    hibernate:
+      ddl-auto: update
+  h2:
+    console:
+      enabled: false
+
+techwizard:
+  cors:
+    allowed-origins: ${CORS_ORIGINS:}
