@@ -42,8 +42,9 @@ export default function ApprovalPayment() {
   };
 
   const grand = claim ? toPesewas(claim.grandTotal) : 0;
-  const paid = claim ? toPesewas(claim.amountPaid) : 0;
-  const outstanding = grand - paid;
+  // money received on this claim PLUS what later claims have already paid of its balance (old money counts as paid)
+  const paid = claim ? toPesewas(claim.amountPaid) + toPesewas(claim.settledLater) : 0;
+  const outstanding = claim ? toPesewas(claim.outstanding) : 0;
   const settled = grand > 0 ? Math.min(1, paid / grand) : 0;
   const isLatest = !!claim && data.siblings.length > 0 && data.siblings[0].id === claim.id;
   const canPay = claim && (claim.status === 'APPROVED' || claim.status === 'PAID');
@@ -75,7 +76,7 @@ export default function ApprovalPayment() {
     const amt = toPesewas(pay.amount);
     if (amt <= 0) { Alert.alert('Enter an amount', 'Payment amount must be greater than zero.'); return; }
     guard('pay', () => api.addPayment(id, { amount: (amt / 100).toFixed(2), paymentDate: pay.date || undefined, reference: pay.reference, note: pay.note }))()
-      .then(() => setPay((p) => ({ ...p, reference: '', note: '' })));
+      .then(() => setPay((p) => ({ ...p, date: todayIso(), reference: '', note: '' })));   // every payment gets its own date
   };
 
   const removePayment = (p) => Alert.alert('Remove payment?', `${formatMoney(toPesewas(p.amount), cur)} will be removed from the log.`, [
@@ -97,43 +98,36 @@ export default function ApprovalPayment() {
           <>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.6 }}>CLAIM #{claim.reference}</Text>
-                <Text style={{ fontSize: 22, fontWeight: '800', color: colors.text }}>{claim.projectName}</Text>
+                <Text style={{ fontSize: 24, fontWeight: '800', color: colors.text }}>{claim.projectName}</Text>
                 <Text style={{ color: colors.textMuted }}>Week {claim.weekNumber} · {fmtPeriod(claim.periodFrom, claim.periodTo)}</Text>
               </View>
               <StatusBadge status={claim.status} partial={isPartiallyPaid(claim)} />
             </View>
 
-            {/* Certified total */}
-            <Card style={{ gap: 10 }}>
-              <Label>Certified total claimed</Label>
-              <Text style={{ fontSize: 32, fontWeight: '800', color: colors.text }}>{formatMoney(grand, cur)}</Text>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: colors.textMuted }}>Settled: {(settled * 100).toFixed(1)}%</Text>
-                <Text style={{ color: colors.textMuted }}>Prepared: {fmtDate(claim.datePrepared)}</Text>
+            {/* Money summary */}
+            <View style={{ backgroundColor: colors.navy, borderRadius: 32, padding: 20, gap: 12 }}>
+              <Text style={{ color: colors.mint, fontWeight: '700' }}>Claim total</Text>
+              <Text style={{ fontSize: 34, fontWeight: '800', color: '#fff' }} adjustsFontSizeToFit numberOfLines={1}>{formatMoney(grand, cur)}</Text>
+              <ProgressBar value={settled} color={colors.mint} style={{ backgroundColor: 'rgba(255,255,255,0.2)', height: 10, borderRadius: 5 }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 20, padding: 14 }}>
+                <Text style={{ color: colors.mint, fontWeight: '700' }}>Paid so far</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff' }}>{formatMoney(paid, cur)}</Text>
               </View>
-              <ProgressBar value={settled} />
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1, backgroundColor: colors.container, borderRadius: 12, padding: 12 }}>
-                  <Label>Liquidated</Label>
-                  <Text style={{ fontSize: 17, fontWeight: '800', color: colors.primary }}>{formatMoney(paid, cur)}</Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: colors.accentSoft, borderRadius: 12, padding: 12 }}>
-                  <Label style={{ color: colors.brown }}>Balance due</Label>
-                  <Text style={{ fontSize: 17, fontWeight: '800', color: colors.brown }}>{formatMoney(outstanding, cur)}</Text>
-                </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.accentSoft, borderRadius: 20, padding: 14 }}>
+                <Text style={{ color: colors.brown, fontWeight: '700' }}>Still owed</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: colors.brown }}>{formatMoney(outstanding, cur)}</Text>
               </View>
-            </Card>
+            </View>
 
             {/* Status */}
             <Card style={{ gap: 12 }}>
-              <Label>Claim status</Label>
+              <Label>Status</Label>
               <View style={{ flexDirection: 'row', gap: 6 }}>
                 {STATUSES.map((s) => {
                   const active = claim.status === s;
                   return (
                     <Pressable key={s} disabled={busy === 'status'} onPress={() => changeStatus(s)} style={{
-                      flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: radius.md,
+                      flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: radius.pill,
                       backgroundColor: active ? colors.primary : colors.container, opacity: busy === 'status' ? 0.6 : 1,
                     }}>
                       <Text style={{ fontSize: 10.5, fontWeight: '800', letterSpacing: 0.3, color: active ? '#fff' : colors.textMuted }}>{s}</Text>
@@ -141,25 +135,21 @@ export default function ApprovalPayment() {
                   );
                 })}
               </View>
-              <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                DRAFT and SUBMITTED claims can be edited. APPROVED and PAID claims are locked. A claim becomes PAID automatically once fully settled.
-              </Text>
             </Card>
 
             {/* Approval sign-off */}
             <Card style={{ gap: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' }}>
                   <Icon name="stamper" size={24} color={colors.primaryDark} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>Approval sign-off</Text>
-                  <Text style={{ color: colors.textMuted }}>Client certification record</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>Client approval</Text>
                 </View>
                 {claim.approvedBy ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.mintSoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
                   <Icon name="shield-check-outline" size={14} /><Text style={{ fontWeight: '800', fontSize: 11, color: colors.primary }}>SIGNED</Text></View> : null}
               </View>
-              <Field label="Authorised approver" value={approver} onChangeText={setApprover} placeholder="e.g. Kofi Osei" />
+              <Field label="Approved by" value={approver} onChangeText={setApprover} placeholder="e.g. Kofi Osei" />
               <DateField label="Approval date" value={approvedDate} onChange={setApprovedDate} />
               {claim.status === 'SUBMITTED' || claim.status === 'DRAFT' ? (
                 <Button title="Record approval" icon="check-decagram-outline" loading={busy === 'status'} onPress={() => changeStatus('APPROVED')} />
@@ -173,26 +163,28 @@ export default function ApprovalPayment() {
             <Card style={{ gap: 12 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: colors.container, alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.container, alignItems: 'center', justifyContent: 'center' }}>
                     <Icon name="cash-multiple" size={24} />
                   </View>
-                  <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>Payment audit log</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>Payments</Text>
                 </View>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textMuted }}>{claim.payments.length} TRANCHE{claim.payments.length === 1 ? '' : 'S'}</Text>
               </View>
 
               {claim.payments.length === 0 ? (
-                <Text style={{ color: colors.textMuted }}>No payments logged yet.</Text>
+                <Text style={{ color: colors.textMuted }}>No payments yet.</Text>
               ) : claim.payments.map((p, i) => (
-                <View key={p.id} style={{ backgroundColor: colors.container, borderRadius: 12, padding: 12, gap: 4 }}>
+                <View key={p.id} style={{ backgroundColor: colors.container, borderRadius: 20, padding: 14, gap: 4 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, letterSpacing: 0.5 }}>TRANCHE {i + 1} RECEIVED</Text>
-                    <Text style={{ color: colors.textMuted }}>{fmtDate(p.paymentDate)}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, letterSpacing: 0.5 }}>PAYMENT {i + 1}</Text>
+                    <Text style={{ fontWeight: '700', color: colors.text }}>{fmtDate(p.paymentDate)}</Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ fontSize: 22, fontWeight: '800', color: colors.text }}>{formatMoney(toPesewas(p.amount), cur)}</Text>
                     <IconButton icon="trash-can-outline" bg="transparent" color={colors.textMuted} onPress={() => removePayment(p)} />
                   </View>
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    Total paid after this: {formatMoney(claim.payments.slice(0, i + 1).reduce((a, x) => a + toPesewas(x.amount), 0), cur)}
+                  </Text>
                   {p.reference ? <Text style={{ color: colors.textMuted }}>Ref: <Text style={{ fontWeight: '700', color: colors.text }}>{p.reference}</Text></Text> : null}
                   {p.note ? <Text style={{ fontStyle: 'italic', color: colors.textMuted }}>“{p.note}”</Text> : null}
                 </View>
@@ -200,47 +192,29 @@ export default function ApprovalPayment() {
 
               {canPay ? (
                 <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: colors.containerHigh, paddingTop: 12 }}>
-                  <Label>Log additional payment</Label>
+                  <Label>Add a payment</Label>
                   <Field label={`Amount (${cur})`} value={pay.amount} onChangeText={(t) => setPay((p) => ({ ...p, amount: numeric(t) }))} keyboardType="decimal-pad" />
-                  <DateField label="Payment date" value={pay.date} onChange={(d) => setPay((p) => ({ ...p, date: d }))} />
+                  <DateField label="Date paid" value={pay.date} onChange={(d) => setPay((p) => ({ ...p, date: d }))} />
                   <Field label="Reference" value={pay.reference} onChangeText={(t) => setPay((p) => ({ ...p, reference: t }))} placeholder="e.g. TXN-GH-992140" />
                   <Field label="Note" value={pay.note} onChangeText={(t) => setPay((p) => ({ ...p, note: t }))} placeholder="Optional" />
-                  <Button title="Log payment" icon="plus-circle-outline" variant="soft" loading={busy === 'pay'} onPress={logPayment} />
+                  <Button title="Save payment" icon="plus-circle-outline" variant="soft" loading={busy === 'pay'} onPress={logPayment} />
                 </View>
-              ) : (
-                <Text style={{ color: colors.textMuted, fontSize: 12 }}>Approve the claim to start logging payments.</Text>
-              )}
+              ) : null}
             </Card>
 
-            {/* Carry-forward */}
-            <Card style={{ gap: 10 }}>
+            {/* Next week's balance */}
+            <Card style={{ gap: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon name="calculator-variant-outline" size={24} color={colors.brown} />
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="calendar-arrow-right" size={24} color={colors.brown} />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>Carry-forward calculator</Text>
-                  <Text style={{ color: colors.textMuted }}>Reconciliation & B/F derivation</Text>
-                </View>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text, flex: 1 }}>Next week's balance</Text>
               </View>
-              <CalcRow label={`Certified total claim (Week ${claim.weekNumber})`} value={formatMoney(grand, cur)} />
-              <CalcRow label="Less total payment received" value={`- ${formatMoney(paid, cur)}`} color={colors.primary} />
-              <View style={{ backgroundColor: colors.accentSoft, borderRadius: 12, padding: 12 }}>
-                <Label style={{ color: colors.brown }}>Unpaid outstanding balance</Label>
-                <Text style={{ fontSize: 26, fontWeight: '800', color: colors.brown, textAlign: 'right' }}>{formatMoney(outstanding, cur)}</Text>
-                <Text style={{ color: colors.textMuted, fontSize: 12 }}>To be claimed in the next billing cycle</Text>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1, backgroundColor: colors.containerHigh, borderRadius: 12, padding: 12 }}>
-                  <Label>Week {claim.weekNumber} remainder</Label>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: colors.text }}>{formatMoney(Math.max(outstanding, 0), cur)}</Text>
-                  <Text style={{ fontSize: 12, color: colors.textMuted }}>{outstanding > 0 ? 'Pending clearance' : 'Fully settled'}</Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: colors.mintSoft, borderRadius: 12, padding: 12 }}>
-                  <Label style={{ color: colors.primary }}>Week {claim.weekNumber + 1} opening B/F</Label>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: colors.primary }}>{formatMoney(Math.max(outstanding, 0), cur)}</Text>
-                  <Text style={{ fontSize: 12, color: colors.textMuted }}>Claim base starting value</Text>
-                </View>
+              <CalcRow label={`Week ${claim.weekNumber} claim`} value={formatMoney(grand, cur)} />
+              <CalcRow label="Paid" value={`- ${formatMoney(paid, cur)}`} color={colors.primary} />
+              <View style={{ backgroundColor: colors.accentSoft, borderRadius: 22, padding: 14 }}>
+                <Text style={{ color: colors.brown, fontWeight: '700' }}>Brought forward to Week {claim.weekNumber + 1}</Text>
+                <Text style={{ fontSize: 26, fontWeight: '800', color: colors.brown, textAlign: 'right' }}>{formatMoney(Math.max(outstanding, 0), cur)}</Text>
               </View>
               {isLatest ? (
                 <Button title={`Create Week ${claim.weekNumber + 1} claim`} icon="arrow-right-bold-circle-outline" variant="soft" loading={busy === 'next'} onPress={nextWeek} />
@@ -249,6 +223,7 @@ export default function ApprovalPayment() {
 
             <Button title="View certificate" icon="file-document-outline" onPress={() => router.push(`/claim/${id}/preview`)} />
             <Button title="Open in editor" icon="pencil-outline" variant="soft" onPress={() => router.push(`/claim/${id}`)} />
+            <Button title="Done" icon="check" onPress={() => router.replace('/')} />
           </>
         ) : null}
       </Screen>

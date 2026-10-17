@@ -24,5 +24,8 @@ export const REQUEST_TIMEOUT_MS = 45000;
 export const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
 export const CURRENCY = 'GH₵';
 
-// Set EXPO_PUBLIC_USE_MOCK=true to run the whole UI against built-in fake data (no backend needed).
-export const USE_MOCK = process.env.EXPO_PUBLIC_USE_MOCK === 'true';
+// Where the app keeps its data:
+//   'local' (default) - on the phone itself. Works fully offline, no server or internet needed.
+//   'cloud'           - the hosted Java backend (API_URL above). Needs internet.
+// Choose with EXPO_PUBLIC_DATA_MODE=local|cloud.
+export const DATA_MODE = process.env.EXPO_PUBLIC_DATA_MODE === 'cloud' ? 'cloud' : 'local';

@@ -78,3 +78,23 @@ describe('claim calculations (integer pesewas)', () => {
     expect(amountInWords(0)).toBe('Zero Ghana Cedis Only');
   });
 });
+
+describe('roundUpTotal (Rounded Total)', () => {
+  const { roundUpTotal, computeTotals } = require('../src/lib/calc');
+  test('under 1,000 rounds up to the next 100; 1,000 and over to the next 1,000', () => {
+    expect(roundUpTotal(31500)).toBe(40000);       // 315.00 -> 400.00
+    expect(roundUpTotal(2481500)).toBe(2500000);   // 24,815.00 -> 25,000.00
+    expect(roundUpTotal(12666450)).toBe(12700000); // 126,664.50 -> 127,000.00
+  });
+  test('round figures stay as they are, zero and negatives are untouched', () => {
+    expect(roundUpTotal(40000)).toBe(40000);
+    expect(roundUpTotal(2500000)).toBe(2500000);
+    expect(roundUpTotal(0)).toBe(0);
+    expect(roundUpTotal(-5000)).toBe(-5000);
+  });
+  test('computeTotals exposes roundedTotal from the grand total', () => {
+    const t = computeTotals([{ type: 'LUMP_SUM', amount: '24815' }], '0', '0');
+    expect(t.grandTotal).toBe(2481500);
+    expect(t.roundedTotal).toBe(2500000);
+  });
+});

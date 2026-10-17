@@ -1,6 +1,6 @@
 import axios from 'axios';
-import { API_KEY, API_URL, REQUEST_TIMEOUT_MS, USE_MOCK } from '../config';
-import { mockApi } from './mockApi';
+import { API_KEY, API_URL, DATA_MODE, REQUEST_TIMEOUT_MS } from '../config';
+import { localApi } from './localApi';
 import { emitDataChanged } from './events';
 
 const http = axios.create({
@@ -44,6 +44,12 @@ async function call(promise) {
   }
 }
 
+async function offlineOnly() {
+  const e = new Error('This only works in offline mode (data stored on the phone).');
+  e.isApiError = true;
+  throw e;
+}
+
 const realApi = {
   health: () => call(axios.get(`${API_URL}/api/health`, { timeout: 4000 })),
 
@@ -69,13 +75,19 @@ const realApi = {
 
   settings: () => call(http.get('/settings')),
   saveSettings: (body) => call(http.put('/settings', body)),
+
+  // Backup / restore / erase / sample data only make sense for the data stored on the phone.
+  exportBackup: offlineOnly,
+  importBackup: offlineOnly,
+  eraseAll: offlineOnly,
+  loadSampleData: offlineOnly,
 };
 
-// Demo mode can be switched on while the app runs (the error screen offers "Use demo data").
-let mockMode = USE_MOCK;
-export const isMockMode = () => mockMode;
-export function setMockMode(on) {
-  mockMode = !!on;
+// Which data layer is active. The cloud error screen offers "Switch to offline mode".
+let mode = DATA_MODE;
+export const getDataMode = () => mode;
+export function setDataMode(next) {
+  mode = next === 'cloud' ? 'cloud' : 'local';
   emitDataChanged();
 }
 
@@ -83,14 +95,18 @@ export function setMockMode(on) {
 const WRITE = new Set([
   'createProject', 'updateProject', 'deleteProject', 'createClaim', 'updateClaim', 'deleteClaim', 'saveItems',
   'duplicateClaim', 'setStatus', 'addPayment', 'removePayment', 'saveSettings',
+  'importBackup', 'eraseAll', 'loadSampleData',
 ]);
 
 export const api = {};
 Object.keys(realApi).forEach((name) => {
   api[name] = async (...args) => {
-    const impl = mockMode ? mockApi : realApi;
+    const impl = mode === 'cloud' ? realApi : localApi;
     const result = await impl[name](...args);
     if (WRITE.has(name)) emitDataChanged();
     return result;
   };
 });
+
+// Development only: lets the browser test seed sample data (there is no sample-data button in the app any more).
+if (typeof window !== 'undefined' && typeof __DEV__ !== 'undefined' && __DEV__) window.__techwizardApi = api;

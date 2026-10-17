@@ -3,7 +3,8 @@
 An APK is a file you install on an Android phone like any other app, so you no longer need Expo Go, your PC or a hotspot.
 Expo's cloud service (EAS Build) builds it for you; it needs a free Expo account.
 
-The APK talks to your hosted backend (Render + Neon), so the phone needs internet.
+The app stores its data **on the phone and works fully offline**; it does not need a server or internet.
+(Optional: `EXPO_PUBLIC_DATA_MODE=cloud` in `eas.json` switches it to the hosted backend.)
 
 ## One-time setup
 1. Create a free account at https://expo.dev
@@ -13,16 +14,8 @@ The APK talks to your hosted backend (Render + Neon), so the phone needs interne
    npx eas-cli init
    ```
    `init` links this project to your Expo account (it adds a project id to `app.json`; accept the prompts).
-3. Give the build your API key (it is *not* stored in git). Run and answer the prompts:
-   ```powershell
-   npx eas-cli env:create
-   ```
-   - Environment: **preview** (and again for **production** if you want store builds later)
-   - Name: `EXPO_PUBLIC_API_KEY`
-   - Value: the `API_KEY` from Render (Render → tech-wizard-api → Environment)
-   - Visibility: the most private option it allows for this variable (`sensitive` if offered; plain text if not)
-
-   The API URL and "no demo data" settings are already in `eas.json`.
+3. *(Only for cloud mode)* the API key is not needed for the offline app. If you later switch to cloud mode, add it with
+   `npx eas-cli env:create` (name `EXPO_PUBLIC_API_KEY`, environment `preview`).
 4. Commit and push (EAS builds the code that is in git):
    ```powershell
    git add -A
@@ -45,10 +38,10 @@ npx eas-cli build --platform android --profile preview
 
 ## Updating the app later
 Change the code, commit and push, then run the same build command again and install the new APK over the old one
-(the package name `com.techwizard.app` and the stored keystore keep it an update, so your data - which lives on the server - is untouched).
+(the package name `com.techwizard.app` and the stored keystore keep it an update, and the data on the phone is kept).
+Tip: make a backup first (Settings → Data & backup). Uninstalling the app deletes its data.
 
 ## Good to know
-- `EXPO_PUBLIC_*` values are compiled into the app, so the API key can be extracted from the APK by a determined person.
-  For real multi-user use, add user logins.
+- Data lives only on the phone: **back it up** (Settings → Data & backup) and before changing phones. Uninstalling the app erases it.
 - For the Google Play Store use `--profile production` (builds an `.aab`), which also needs a Play developer account.
 - If a build fails, open the build page on expo.dev and read the "Run gradlew" section of the log, then ask for help with that text.

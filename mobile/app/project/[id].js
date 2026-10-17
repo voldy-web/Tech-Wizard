@@ -113,7 +113,7 @@ export default function ProjectDetail() {
               <Particular label="Client name" value={p.client} icon="check-decagram-outline" />
               <Particular label="Scope of work" value={p.scopeOfWork} />
               <Particular label="Site location" value={p.location} icon="map-outline" />
-              <Particular label="Default levy / retention %" value={`${Number(p.levyPercent ?? 0).toFixed(2)}%`} />
+              <Particular label="Default markup %" value={`${Number(p.levyPercent ?? 0).toFixed(2)}%`} />
             </Card>
 
             <SectionHeader icon="file-document-multiple-outline" title="Project Claims History" />

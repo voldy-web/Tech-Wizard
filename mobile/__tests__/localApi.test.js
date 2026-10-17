@@ -1,6 +1,6 @@
-import { mockApi as api, resetMock } from '../src/api/mockApi';
+import { localApi as api, resetLocal } from '../src/api/localApi';
 
-beforeEach(() => resetMock({ demo: false }));
+beforeEach(() => resetLocal({ demo: false }));
 
 const ITEMS = [
   { type: 'LUMP_SUM', description: 'General Labour', amount: '16050' },
@@ -101,5 +101,31 @@ describe('mock API behaves like the backend', () => {
     const s = await api.settings();
     await api.saveSettings({ ...s, companyName: 'ACME' });
     expect((await api.settings()).companyName).toBe('ACME');
+  });
+});
+
+describe('paying old money (Balance B/F)', () => {
+  test('payment on the next claim clears the old balance and counts as paid, never negative', async () => {
+    const { localApi, resetLocal } = require('../src/api/localApi');
+    await resetLocal({ demo: false });
+    const p = await localApi.createProject({ name: 'Ledger Test', client: 'X', levyPercent: 0 });
+    const c1 = await localApi.createClaim(p.id);
+    await localApi.saveItems(c1.id, [{ type: 'LUMP_SUM', description: 'Work', amount: '100' }]);
+    await localApi.setStatus(c1.id, { status: 'APPROVED', approvedBy: 'A' });
+    await localApi.addPayment(c1.id, { amount: '60' });                       // 40 left unpaid
+    const c2 = await localApi.createClaim(p.id);
+    expect(Number(c2.balanceBroughtForward)).toBe(40);                         // old money carried forward
+    await localApi.saveItems(c2.id, [{ type: 'LUMP_SUM', description: 'More', amount: '50' }]);
+    await localApi.setStatus(c2.id, { status: 'APPROVED', approvedBy: 'A' });
+    expect(Number((await localApi.dashboard()).outstanding)).toBe(90);         // 40 old + 50 new
+    await localApi.addPayment(c2.id, { amount: '90' });
+    const d = await localApi.dashboard();
+    expect(Number(d.outstanding)).toBe(0);
+    expect(Number(d.paid)).toBe(150);
+    expect(Number(d.claimed)).toBe(150);
+    const first = await localApi.claim(c1.id);
+    expect(Number(first.outstanding)).toBe(0);                                 // old money no longer "still owed"
+    expect(first.status).toBe('PAID');
+    expect(Number(first.settledLater)).toBe(40);
   });
 });

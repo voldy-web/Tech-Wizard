@@ -1,11 +1,11 @@
 import { api } from '../src/api/client';
 import { onDataChanged } from '../src/api/events';
-import { resetMock } from '../src/api/mockApi';
+import { resetLocal } from '../src/api/localApi';
 
-jest.mock('../src/config', () => ({ API_URL: 'http://x', REQUEST_TIMEOUT_MS: 1000, USE_MOCK: true, CURRENCY: 'GH₵' }));
+jest.mock('../src/config', () => ({ API_URL: 'http://x', REQUEST_TIMEOUT_MS: 1000, DATA_MODE: 'local', CURRENCY: 'GH₵' }));
 
 describe('data-changed signal', () => {
-  beforeEach(() => resetMock({ demo: false }));
+  beforeEach(() => resetLocal({ demo: false }));
 
   test('writes announce a change, reads do not', async () => {
     const seen = jest.fn();
@@ -38,11 +38,13 @@ describe('every write method is wrapped, no read method is', () => {
   });
 });
 
-describe('runtime demo switch', () => {
-  test('setMockMode switches the api to built-in data without a backend', async () => {
-    const { setMockMode, isMockMode } = require('../src/api/client');
-    setMockMode(true);
-    expect(isMockMode()).toBe(true);
+describe('data mode switch', () => {
+  test('switching to offline mode uses the on-phone data without any server', async () => {
+    const { setDataMode, getDataMode } = require('../src/api/client');
+    setDataMode('cloud');
+    expect(getDataMode()).toBe('cloud');
+    setDataMode('local');
+    expect(getDataMode()).toBe('local');
     expect((await api.settings()).currency).toBe('GH₵');
   });
 });

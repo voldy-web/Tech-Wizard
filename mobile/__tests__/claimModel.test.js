@@ -31,3 +31,14 @@ describe('claim model', () => {
     expect(blankItem().key).not.toBe(blankItem().key);
   });
 });
+
+describe('lump-sum free-text Qty and Unit Price', () => {
+  const { blankItem, toServerItem, fromServerItem } = require('../src/lib/claimModel');
+  test('new lump sum defaults to "1 Item" and an empty price text; both survive save/load', () => {
+    const it = { ...blankItem('LUMP_SUM'), amount: '16050', qtyText: '2 Lots', priceText: 'Lump sum A1' };
+    const body = toServerItem(it);
+    expect(body).toMatchObject({ type: 'LUMP_SUM', amount: '16050.00', qtyText: '2 Lots', priceText: 'Lump sum A1' });
+    expect(fromServerItem({ ...body, amount: 16050 })).toMatchObject({ qtyText: '2 Lots', priceText: 'Lump sum A1', amount: '16050' });
+    expect(blankItem('LUMP_SUM')).toMatchObject({ qtyText: '1 Item', priceText: '' });
+  });
+});

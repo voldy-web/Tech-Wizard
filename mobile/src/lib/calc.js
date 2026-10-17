@@ -3,8 +3,8 @@
 // this file mirrors its rules exactly so the editor can update instantly while typing.
 //
 //   measured amount = qty x rate          lump-sum amount = entered
-//   subTotal = sum(amounts)               levy = subTotal x levy% / 100
-//   total = subTotal + levy               grandTotal = total + balanceBroughtForward
+//   subTotal = sum(amounts)               markup ("levy" in the code) = subTotal x markup% / 100
+//   total = subTotal + markup             grandTotal = total + balanceBroughtForward
 
 /** Parse a decimal (string or number) into an integer scaled by 10^scale, rounding HALF_UP. Invalid -> 0. */
 function parseScaled(value, scale) {
@@ -64,13 +64,26 @@ export function levyAmount(subTotalPesewas, levyPercent) {
   return divRound(subTotalPesewas * toPercentHundredths(levyPercent), 10000);
 }
 
+/**
+ * "Rounded total": the grand total rounded UP to a round figure, shown as 0.00.
+ *   under GH₵ 1,000  -> next 100      (315 -> 400)
+ *   GH₵ 1,000 and up -> next 1,000    (24,815 -> 25,000)
+ * An amount that is already round stays as it is. Zero or negative stays unchanged.
+ */
+export const ROUND_UP_STEPS = [[100000, 10000], [Infinity, 100000]]; // [below (pesewas), step (pesewas)]
+export function roundUpTotal(pesewas) {
+  if (!(pesewas > 0)) return pesewas || 0;
+  const step = ROUND_UP_STEPS.find(([below]) => pesewas < below)[1];
+  return Math.ceil(pesewas / step) * step;
+}
+
 /** All totals in pesewas. */
 export function computeTotals(items, levyPercent, balanceBroughtForward) {
   const sub = subTotal(items || []);
   const levy = levyAmount(sub, levyPercent);
   const total = sub + levy;
   const grandTotal = total + toPesewas(balanceBroughtForward);
-  return { subTotal: sub, levy, total, grandTotal };
+  return { subTotal: sub, levy, total, grandTotal, roundedTotal: roundUpTotal(grandTotal) };
 }
 
 /** Both arguments in pesewas. */

@@ -2,7 +2,7 @@ import React from 'react';
 import { Text, View } from 'react-native';
 import { Card, Icon, StatusBadge } from './ui';
 import { colors } from '../theme';
-import { isPartiallyPaid, money, pad } from '../lib/format';
+import { isPartiallyPaid, money } from '../lib/format';
 
 const ICONS = {
   DRAFT: ['pencil-box-outline', colors.container, colors.textMuted],
@@ -16,12 +16,12 @@ export default function ClaimRow({ claim, onPress, currency, showOutstanding }) 
   const [icon, bg, fg] = ICONS[claim.status] || ICONS.DRAFT;
   return (
     <Card onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 }}>
-      <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name={icon} size={24} color={fg} />
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>
-          Claim #{pad(claim.weekNumber, 3)} <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted }}>WEEK {claim.weekNumber}</Text>
+          Week {claim.weekNumber}
         </Text>
         <Text numberOfLines={1} style={{ fontSize: 14, color: colors.textMuted }}>{claim.projectName}</Text>
       </View>

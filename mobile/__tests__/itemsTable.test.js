@@ -17,7 +17,7 @@ describe('ItemsTable (paper-certificate style entry)', () => {
     ['Item', 'Description', 'Qty', 'Unit Price\n(GH₵)', 'Amount\n(GH₵)'].forEach((h) => expect(screen.getAllByText(h).length).toBeGreaterThan(0));
     expect(screen.getByText('54,000.00')).toBeTruthy();          // 450 x 120, calculated
     expect(screen.getByDisplayValue('16050')).toBeTruthy();      // lump sum typed directly
-    expect(screen.getByText('1 Item')).toBeTruthy();
+    expect(screen.getByDisplayValue('1 Item')).toBeTruthy();       // lump-sum Qty is free text
     expect(screen.getByText('↳ Grade 42.5R')).toBeTruthy();   // remarks shown quietly when the row is closed
     expect(screen.getByText('Bags')).toBeTruthy();            // unit sits under the quantity
   });
@@ -65,5 +65,32 @@ describe('ItemsTable (paper-certificate style entry)', () => {
     expect(screen.getByText('4,903.50')).toBeTruthy();    // 7%
     expect(screen.getByText('74,953.50')).toBeTruthy();
     expect(screen.getByText('GH₵ 82,687.50')).toBeTruthy();
+  });
+});
+
+describe('TotalsTable typing', () => {
+  test('B/F and markup inputs keep the same element while typing (no remount, so focus is not lost)', () => {
+    const totals = { subTotal: 1000, levy: 0, total: 1000, grandTotal: 1000 };
+    function Harness() {
+      const [bf, setBf] = React.useState('5');
+      const [lv, setLv] = React.useState('7');
+      return <TotalsTable totals={totals} currency="GH₵" levyPercent={lv} onLevy={setLv} balanceBroughtForward={bf} onBalance={setBf} weekNumber={2} />;
+    }
+    render(<Harness />);
+    const bfBefore = screen.getByDisplayValue('5');
+    fireEvent.changeText(bfBefore, '50');
+    expect(screen.getByDisplayValue('50')).toBe(bfBefore);
+    const lvBefore = screen.getByDisplayValue('7');
+    fireEvent.changeText(lvBefore, '75');
+    expect(screen.getByDisplayValue('75')).toBe(lvBefore);
+  });
+});
+
+describe('TotalsTable rounded total', () => {
+  test('shows a ROUNDED TOTAL row after the grand total, rounded up', () => {
+    const t = computeTotals([{ type: 'LUMP_SUM', amount: '24815' }], '0', '0');
+    render(<TotalsTable totals={t} currency="GH₵" levyPercent="0" onLevy={() => {}} balanceBroughtForward="0" onBalance={() => {}} weekNumber={1} />);
+    expect(screen.getByText('ROUNDED TOTAL')).toBeTruthy();
+    expect(screen.getByTestId('rounded-total').props.children).toBe('GH₵ 25,000.00');
   });
 });

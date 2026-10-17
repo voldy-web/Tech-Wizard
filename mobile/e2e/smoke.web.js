@@ -1,5 +1,5 @@
-// Browser smoke test of the whole UI against the built-in mock data (no backend needed).
-//   1. npm run web:mock            (keep it running, serves http://localhost:8081)
+// Browser smoke test of the whole UI in offline mode (no backend needed; data is kept in the browser's storage).
+//   1. npm run web:local           (keep it running, serves http://localhost:8081)
 //   2. npm i -D playwright && npx playwright install chromium     (one-time)
 //   3. npm run test:e2e
 // Optional: CHROME_PATH=/path/to/chrome  APP_URL=http://localhost:8081
@@ -14,11 +14,16 @@ const assert = require('assert');
   const text = async (re) => p.getByText(re).locator('visible=true').first().waitFor({ timeout: 8000 });
   const step = async (name, fn) => { try { await fn(); console.log('ok  -', name); } catch (e) { await p.screenshot({ path: 'e2e-failure.png' }); console.log('URL', p.url(), JSON.stringify((await p.locator('body').innerText()).replace(/[^\x20-\x7E\n]/g,'').slice(0,300))); throw e; } };
 
-  await step('dashboard shows seeded totals', async () => {
+  await step('first launch is empty (offline, no server)', async () => {
     await p.goto(base + '/', { waitUntil: 'networkidle' });
-    await text('Valuation Summary'); await text(/118,930/); await text('East Legon Residential Complex');
+    await text('Start by adding your first project.');
   });
-  for (const [route, marker] of [['/projects', 'New Project'], ['/claims', 'New Claim'], ['/approvals', /Awaiting payment/], ['/settings', /Company profile/]]) {
+  await step('seed the sample project (dev hook)', async () => {
+    await p.evaluate(() => window.__techwizardApi.loadSampleData());
+    await p.goto(base + '/', { waitUntil: 'networkidle' });
+    await text('Total claimed'); await text(/126,664/);
+  });
+  for (const [route, marker] of [['/projects', 'East Legon Residential Complex'], ['/claims', 'New Claim'], ['/approvals', /Awaiting payment/], ['/settings', /Claim defaults/]]) {
     await step(`tab ${route}`, async () => { await p.goto(base + route, { waitUntil: 'networkidle' }); await text(marker); });
   }
   await step('project form validation', async () => {
@@ -32,32 +37,23 @@ const assert = require('assert');
     await p.getByText('Create project').click();
     await text('Airport Hills Villa'); await text(/Create Week 1 Claim/);
   });
-  await step('create claim, quick-add item, live total', async () => {
+  await step('data survives closing and reopening the app (page reload)', async () => {
+    await p.reload({ waitUntil: 'networkidle' });
+    await text('Airport Hills Villa'); await text(/Create Week 1 Claim/);
+  });
+  await step('create claim, add a row, live total', async () => {
     await p.getByText(/Create Week 1 Claim/).click();
-    await text('Quick-insert item');
-    await p.getByText('Cement (50kg)').click();
-    await text(/GH₵ 117\.70/);                               // 1 x 110 + 7%
-    await p.locator('input[placeholder="0"]').first().fill('10');   // qty -> 10
-    await text(/GH₵ 1,177\.00/);                             // 1100 + 77
+    await p.getByText('Add row', { exact: true }).click();
+    await p.getByPlaceholder('Description').first().fill('Cement (50kg)');
+    await p.locator('input[placeholder="0"]').first().fill('10');   // qty
+    await p.getByPlaceholder('0.00').first().fill('110');           // unit price
+    await text(/GH₵ 1,177\.00/);                             // 1100 + 7%
   });
   await step('table view: add a lump-sum row and see the totals block', async () => {
     await p.getByText('Add lump sum').click();
-    await p.getByPlaceholder('0.00').last().fill('900');
+    await p.getByPlaceholder('0.00').last().fill('900');   // lump-sum Amount
     await text(/2,140\.00/);                                 // (1100 + 900) x 1.07
-    await text('Sub-Total'); await text('TOTAL');
-    await p.getByText('Cards (drag to reorder)').click();       // switch to the card view for the next steps
-  });
-  await step('card view shows the same rows', async () => {
-    await text(/LUMP SUM/);
-    await p.getByText('Lump sum', { exact: true }).first().waitFor();
-  });
-  await step('mismatch warning on a measured row', async () => {
-    await p.getByText('Enter amount').first().click();
-    await p.getByPlaceholder('0.00').nth(1).fill('5000');
-    await text('AUDIT ALERT');
-    await text('AUTO-RECALC');
-    await p.getByText('AUTO-RECALC').click();
-    await p.getByText('AUDIT ALERT').waitFor({ state: 'detached', timeout: 5000 });
+    await text('Sub-Total'); await text('TOTAL'); await text(/\(Markup\)/);
   });
   await step('autosave indicator', async () => { await text(/auto-saved/); });
   await step('certificate preview renders the same totals', async () => {
@@ -72,22 +68,58 @@ const assert = require('assert');
     await text('GRAND TOTAL');
     await text(/GH₵ 2,140\.00/);
   });
+  await step('claim, items and totals are saved offline too (reload while editing)', async () => {
+    await p.waitForTimeout(2200);                                 // let autosave finish
+    await p.reload({ waitUntil: 'networkidle' });
+    await text(/GH₵ 2,140\.00/);
+  });
+  await step('settings autosave (no save button) survives reload', async () => {
+    await p.goto(base + '/settings', { waitUntil: 'networkidle' });
+    if (await p.getByText('Save settings').count()) throw new Error('Save settings button should be gone');
+    if (await p.getByText(/Data & backup|COMPANY LOGO|SIGNATURE/).count()) throw new Error('removed sections still visible');
+    const f = p.getByPlaceholder('Kwame Addae'); await f.fill('Ama Mensah'); await p.waitForTimeout(1600);
+    await p.reload({ waitUntil: 'networkidle' });
+    await text(/All changes saved/);
+    const v = await p.getByPlaceholder('Kwame Addae').inputValue();
+    if (v !== 'Ama Mensah') throw new Error('settings not autosaved: ' + v);
+  });
   await step('approvals tab -> approval screen -> log final payment -> PAID', async () => {
     for (let i = 0; i < 5 && !(await p.getByText('Approvals', { exact: true }).last().isVisible()); i++) { await p.goBack(); await p.waitForTimeout(600); }
     await p.getByText('Approvals', { exact: true }).last().click(); await p.waitForTimeout(1200);
     await text(/Awaiting payment \(1\)/);
-    await p.getByText(/Claim #001/).first().click();
+    await p.getByText('East Legon Residential Complex').first().click();
     await text('Approval & payment');
     await text(/PARTIALLY PAID/);
     await text(/GH₵ 26,664\.50/);                            // balance due
-    await p.getByText('Log payment', { exact: true }).click();
-    await p.waitForFunction(() => ['TRANCHE 2 RECEIVED', 'Settled: 100.0%', 'GH₵ 0.00'].every((t) => document.body.innerText.includes(t)), null, { timeout: 8000 });
+    // each payment keeps its own date, picked from the calendar
+    await p.getByLabel('Date paid: choose date').click();
+    await p.getByLabel('Previous month').click();
+    await p.getByLabel(/^Pick 3 /).click();
+    await p.getByText('Save payment', { exact: true }).click();
+    await p.waitForFunction(() => ['PAYMENT 2', 'Still owed', 'GH₵ 0.00'].every((t) => document.body.innerText.includes(t)), null, { timeout: 8000 });
+    const d = new Date(); const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    await text(new RegExp(`^3 ${M[(d.getMonth() + 11) % 12]} `));                 // the payment kept the date we picked
+    await text(`${d.getDate()} ${M[d.getMonth()]} ${d.getFullYear()}`);            // and the form offers today's date for the next one
   });
   await step('approvals list refreshes after payment, dashboard reflects it', async () => {
     await p.mouse.click(26, 32); await p.waitForTimeout(1500);   // the app's own back arrow
     await p.waitForFunction(() => document.body.innerText.includes('All caught up'), null, { timeout: 8000 });
-    await p.getByText('Dashboard', { exact: true }).last().click();
-    await p.waitForFunction(() => document.body.innerText.includes('Valuation Summary') && document.body.innerText.includes('126,664'), null, { timeout: 8000 });
+    await p.getByText('Home', { exact: true }).last().click();
+    await p.waitForFunction(() => document.body.innerText.includes('Total claimed') && document.body.innerText.includes('126,664'), null, { timeout: 8000 });
+  });
+  await step('still-owed page lists unpaid and paid money', async () => {
+    await p.goto(base + '/', { waitUntil: 'networkidle' });
+    await p.getByText('Still owed', { exact: true }).first().click();
+    await text('Payments & balance'); await text('Not paid yet');
+    await p.getByText('Paid', { exact: true }).click();
+    await text(/Includes GH₵ .* of old balance|Week 1/);
+  });
+  await step('Done sends a draft claim for approval', async () => {
+    await p.goto(base + '/claims', { waitUntil: 'networkidle' });
+    await p.getByText('Airport Hills Villa').first().click();
+    await text('GRAND TOTAL');
+    await p.getByText('Done', { exact: true }).click();
+    await text(/Awaiting approval \(1\)/);
   });
   await b.close();
   if (errors.length) { console.log('PAGE ERRORS:', errors); process.exit(1); }

@@ -8,7 +8,7 @@ export default function ProjectPicker({ visible, projects, onPick, onClose, titl
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }} onPress={onClose} />
-      <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: 20, maxHeight: '70%' }}>
+      <View style={{ width: '100%', maxWidth: 560, alignSelf: 'center', backgroundColor: colors.surface, borderTopLeftRadius: 34, borderTopRightRadius: 34, padding: 20, maxHeight: '70%' }}>
         <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 12 }}>{title}</Text>
         <ScrollView>
           {(projects || []).map((p) => (

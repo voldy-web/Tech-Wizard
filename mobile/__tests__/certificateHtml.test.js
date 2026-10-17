@@ -16,19 +16,19 @@ describe('certificate html', () => {
 
   test('follows the paper certificate layout: banner, info block, schedule, totals, boxes, notes', () => {
     expect(html).toContain('CERTIFICATE OF CLAIM');
-    expect(html).toContain('Project:');
-    expect(html).toContain('Scope of Work:');
-    expect(html).toContain('Duration:');
+    expect(html).toContain('Project');
+    expect(html).toContain('Scope of work');
+    expect(html).toContain('Duration');
     expect(html).toContain('19 – 25 May 2025');
     expect(html).toContain('WEEK 9 — ITEMISED SCHEDULE OF WORKS');
     expect(html).toContain('Unit Price');
     expect(html).toContain('Sub-Total');
-    expect(html).toContain('Add 7% (Levy)');
+    expect(html).toContain('Add 7% (Markup)');
     expect(html).toContain('Balance Brought Forward (B/F)');
     expect(html).toContain('GRAND TOTAL');
-    expect(html).toContain('Prepared &amp; Submitted By:');
-    expect(html).toContain('Approved By:');
-    expect(html).toContain('Notes:');
+    expect(html).toContain('Prepared &amp; Submitted By');
+    expect(html).toContain('Approved By');
+    expect(html).toContain('Notes');
     expect(html).toContain('All amounts are expressed in Ghana Cedis');
   });
 
@@ -37,12 +37,12 @@ describe('certificate html', () => {
     expect(html).toContain('2,912.00');
     expect(html).toContain('44,512.00');
     expect(html).toContain('12,450.00');
-    expect(html).toContain('GH₵ 56,962.00');
+    expect(html).toContain('56,962.00');
   });
 
   test('measured rows show qty with unit; lump sums show 1 Item', () => {
     expect(html).toContain('24 m³');
-    expect(html).toMatch(/Rebar labour[\s\S]*?<td class="c">1 Item<\/td>\s*<td class="r">1 Item<\/td>/);
+    expect(html).toMatch(/Rebar labour[\s\S]*?<td class="c">1 Item<\/td>\s*<td class="r wrap"><\/td>/);
   });
 
   test('user notes are appended; approver details stay blank until approved', () => {
@@ -59,4 +59,13 @@ describe('certificate html', () => {
     expect(html).not.toContain('javascript:');
   });
 
+
+  test('shows the contract sum (when set) and the rounded total', () => {
+    const withSum = buildCertificateHtml({ ...claim, contractSum: 1250000, grandTotal: 24815 }, { currency: 'GH₵' });
+    expect(withSum).toContain('Contract sum');
+    expect(withSum).toContain('1,250,000.00');
+    expect(withSum).toContain('ROUNDED TOTAL');
+    expect(withSum).toContain('25,000.00');
+    expect(buildCertificateHtml({ ...claim, contractSum: null }, { currency: 'GH₵' })).not.toContain('Contract sum');
+  });
 });

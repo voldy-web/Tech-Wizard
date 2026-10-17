@@ -14,20 +14,21 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerStyle: { backgroundColor: colors.background },
+        headerTitleAlign: 'left',
         headerShadowVisible: false,
         headerTitleStyle: { color: colors.text, fontWeight: '700' },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: { backgroundColor: '#FBFAFF', borderTopColor: colors.containerHigh, height: 62, paddingBottom: 6, paddingTop: 6 },
+        tabBarStyle: { backgroundColor: '#FFFFFF', borderTopWidth: 0, height: 68, paddingBottom: 8, paddingTop: 8, borderTopLeftRadius: 30, borderTopRightRadius: 30, elevation: 14, shadowColor: '#1B1F3B', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 } },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         sceneStyle: { backgroundColor: colors.background },
       }}
     >
-      <Tabs.Screen name="index" options={tab('Dashboard', 'view-dashboard-outline', 'view-dashboard', 'Tech Wizard')} />
+      <Tabs.Screen name="index" options={{ ...tab('Home', 'home-variant-outline', 'home-variant'), headerShown: false }} />
       <Tabs.Screen name="projects" options={tab('Projects', 'office-building-outline', 'office-building')} />
       <Tabs.Screen name="claims" options={tab('Claims', 'file-document-outline', 'file-document')} />
       <Tabs.Screen name="approvals" options={tab('Approvals', 'clipboard-check-outline', 'clipboard-check')} />
-      <Tabs.Screen name="settings" options={tab('Settings', 'cog-outline', 'cog')} />
+      <Tabs.Screen name="settings" options={{ ...tab('Settings', 'cog-outline', 'cog'), headerShown: false }} />
     </Tabs>
   );
 }

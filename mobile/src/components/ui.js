@@ -4,24 +4,31 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radius, shadow, space, statusStyle } from '../theme';
-import { setMockMode } from '../api/client';
+import KeyboardAwareScrollView from './KeyboardAwareScrollView';
+import { setDataMode } from '../api/client';
+import { MAX_CONTENT } from '../hooks/useLayout';
+
+/** Centred column that never gets wider than MAX_CONTENT (keeps tablets / wide windows tidy). */
+export function Constrain({ children, style }) {
+  return <View style={[{ width: '100%', maxWidth: MAX_CONTENT, alignSelf: 'center' }, style]}>{children}</View>;
+}
 
 export function Icon({ name, size = 20, color = colors.primary, style }) {
   return <MaterialCommunityIcons name={name} size={size} color={color} style={style} />;
 }
 
 /** Scrollable page with pull-to-refresh, loading, error and (optional) empty handling. */
-export function Screen({ children, loading, error, onRetry, refreshing, onRefresh, contentStyle, bottomPad = 24 }) {
+export function Screen({ children, loading, error, onRetry, refreshing, onRefresh, contentStyle, bottomPad = 24, fullBleed }) {
   if (loading) return <View style={styles.page}><LoadingState /></View>;
   return (
-    <ScrollView
+    <KeyboardAwareScrollView
       style={styles.page}
       contentContainerStyle={[{ padding: space.lg, paddingBottom: bottomPad + 24, gap: space.lg }, contentStyle]}
       keyboardShouldPersistTaps="handled"
       refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} /> : undefined}
     >
-      {error ? <ErrorState error={error} onRetry={onRetry} /> : children}
-    </ScrollView>
+      {error ? <ErrorState error={error} onRetry={onRetry} /> : fullBleed ? children : <Constrain style={{ gap: space.lg }}>{children}</Constrain>}
+    </KeyboardAwareScrollView>
   );
 }
 
@@ -43,8 +50,8 @@ export function ErrorState({ error, onRetry }) {
       <Text style={[styles.muted, { textAlign: 'center', lineHeight: 20 }]}>{error?.message || 'Unknown error'}</Text>
       {onRetry ? <Button title="Try again" icon="refresh" onPress={onRetry} /> : null}
       {network ? (
-        <Button title="Use demo data instead" icon="flask-outline" variant="soft"
-          onPress={() => { setMockMode(true); if (onRetry) onRetry(); }} />
+        <Button title="Work offline (data stays on this phone)" icon="cellphone-check" variant="soft"
+          onPress={() => { setDataMode('local'); if (onRetry) onRetry(); }} />
       ) : null}
     </View>
   );
@@ -163,18 +170,18 @@ export const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: space.lg, ...shadow },
   h1: { fontSize: 26, fontWeight: '700', color: colors.text },
-  h2: { fontSize: 19, fontWeight: '700', color: colors.text },
+  h2: { fontSize: 20, fontWeight: '700', color: colors.text },
   h3: { fontSize: 17, fontWeight: '700', color: colors.text },
   muted: { fontSize: 14, color: colors.textMuted },
   link: { fontSize: 14, fontWeight: '700', color: colors.primary },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, color: colors.textMuted, textTransform: 'uppercase' },
-  btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, paddingHorizontal: 18, borderRadius: radius.md },
+  btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15, paddingHorizontal: 20, borderRadius: radius.pill },
   btnText: { fontSize: 16, fontWeight: '700' },
-  iconBtn: { width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
-  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.sm, alignSelf: 'flex-start' },
+  iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  badge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.pill, alignSelf: 'flex-start' },
   badgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6 },
-  inputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.container, borderRadius: radius.md, paddingHorizontal: 14 },
+  inputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.container, borderRadius: 18, paddingHorizontal: 14 },
   input: { flex: 1, paddingVertical: 12, fontSize: 16, color: colors.text },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  emptyIcon: { width: 72, height: 72, borderRadius: 20, backgroundColor: colors.container, alignItems: 'center', justifyContent: 'center' },
+  emptyIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.container, alignItems: 'center', justifyContent: 'center' },
 });

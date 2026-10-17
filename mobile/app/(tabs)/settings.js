@@ -1,178 +1,140 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, Image, KeyboardAvoidingView, Platform, Pressable, Switch, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Pressable, Switch, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../src/api/client';
 import { useApi } from '../../src/hooks/useApi';
-import { Button, Card, Field, Icon, IconButton, Label, Screen, SectionHeader } from '../../src/components/ui';
-import { pickImageAsDataUri } from '../../src/lib/pickImage';
-import { colors, radius } from '../../src/theme';
-import { money } from '../../src/lib/format';
+import { Button, Constrain, Field, Icon, Screen } from '../../src/components/ui';
+import { colors, radius, shadow } from '../../src/theme';
 
-const numeric = (t) => t.replace(/[^0-9.,]/g, '');
+const AUTOSAVE_MS = 700;
 
-function ImageBox({ title, uri, onPick, onClear, icon }) {
+/** A soft rounded section with a coloured icon badge. */
+function Section({ icon, tint, title, children }) {
   return (
-    <View style={{ flex: 1, backgroundColor: colors.container, borderRadius: 12, padding: 10, gap: 8, alignItems: 'center' }}>
-      <Label>{title}</Label>
-      <View style={{ width: '100%', height: 84, backgroundColor: '#fff', borderRadius: 10, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        {uri ? <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" /> : <Icon name={icon} size={32} color={colors.outline} />}
+    <View style={{ backgroundColor: colors.surface, borderRadius: 30, padding: 18, gap: 14, ...shadow }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: tint, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name={icon} size={22} color={colors.navy} />
+        </View>
+        <Text style={{ fontSize: 19, fontWeight: '800', color: colors.text }}>{title}</Text>
       </View>
-      <View style={{ flexDirection: 'row', gap: 6, width: '100%' }}>
-        <Button title={uri ? 'Change' : 'Upload'} icon="image-outline" variant="soft" compact style={{ flex: 1 }} onPress={onPick} />
-        {uri ? <IconButton icon="close" bg={colors.errorSoft} color={colors.error} onPress={onClear} /> : null}
-      </View>
+      {children}
     </View>
   );
 }
 
 export default function Settings() {
   const { data, error, loading, refreshing, refresh, reload } = useApi(() => api.settings());
+  const insets = useSafeAreaInsets();
   const [f, setF] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [state, setState] = useState('saved');      // saved | pending | error
   const [newUnit, setNewUnit] = useState('');
+  const latest = useRef(null);
+  const dirty = useRef(false);
+  const timer = useRef(null);
 
   useEffect(() => {
-    if (data) setF({
-      ...data,
-      defaultLevyPercent: String(data.defaultLevyPercent ?? 7),
-      units: data.units || [],
-      commonItems: (data.commonItems || []).map((c) => ({ ...c, defaultRate: c.defaultRate != null ? String(c.defaultRate) : '' })),
-    });
+    if (data && !dirty.current) {
+      const next = { ...data, defaultLevyPercent: String(data.defaultLevyPercent ?? 7), units: data.units || [] };
+      latest.current = next;
+      setF(next);
+    }
   }, [data]);
 
-  const set = (k) => (v) => { setSaved(false); setF((s) => ({ ...s, [k]: v })); };
-  const setItem = (i, patch) => { setSaved(false); setF((s) => ({ ...s, commonItems: s.commonItems.map((c, j) => (j === i ? { ...c, ...patch } : c)) })); };
-
-  const pick = (key, opts) => async () => {
-    try { const uri = await pickImageAsDataUri(opts); if (uri) set(key)(uri); }
-    catch (e) { Alert.alert('Could not load image', e.message); }
+  const flush = async () => {
+    if (!dirty.current || !latest.current) return;
+    const cur = latest.current;
+    const levy = Number(String(cur.defaultLevyPercent).replace(/,/g, ''));
+    if (cur.defaultLevyPercent === '' || Number.isNaN(levy) || levy < 0 || levy > 100) { setState('error'); return; }   // wait for a valid markup
+    dirty.current = false;
+    try {
+      await api.saveSettings({ ...cur, defaultLevyPercent: levy });
+      setState(dirty.current ? 'pending' : 'saved');
+    } catch { dirty.current = true; setState('error'); }
   };
+
+  const change = (patch) => {
+    setF((s) => { const n = { ...s, ...patch }; latest.current = n; return n; });
+    dirty.current = true;
+    setState('pending');
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flush, AUTOSAVE_MS);
+  };
+  const set = (k) => (v) => change({ [k]: v });
+
+  // never lose an edit when leaving the tab / closing the app screen
+  useEffect(() => () => { clearTimeout(timer.current); flush(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addUnit = () => {
     const u = newUnit.trim();
     if (!u || f.units.includes(u)) { setNewUnit(''); return; }
-    set('units')([...f.units, u]); setNewUnit('');
+    change({ units: [...f.units, u] }); setNewUnit('');
   };
 
-  const save = async () => {
-    const levy = Number(String(f.defaultLevyPercent).replace(/,/g, ''));
-    if (Number.isNaN(levy) || levy < 0 || levy > 100) { Alert.alert('Check the levy', 'Default levy must be between 0 and 100.'); return; }
-    setSaving(true);
-    try {
-      const body = {
-        ...f,
-        defaultLevyPercent: levy,
-        commonItems: f.commonItems.filter((c) => c.description.trim()).map((c) => ({
-          description: c.description.trim(), unit: c.unit, note: c.note,
-          defaultRate: c.defaultRate === '' ? null : Number(String(c.defaultRate).replace(/,/g, '')),
-        })),
-      };
-      await api.saveSettings(body);
-      setSaved(true);
-      reload();
-    } catch (e) { Alert.alert('Could not save settings', e.message); } finally { setSaving(false); }
-  };
+  const status = {
+    saved: { icon: 'check-circle', text: 'All changes saved', fg: colors.primary, bg: colors.mintSoft },
+    pending: { icon: 'sync', text: 'Saving…', fg: colors.textMuted, bg: colors.container },
+    error: { icon: 'alert-circle-outline', text: 'Enter a markup between 0 and 100 to save', fg: colors.error, bg: colors.errorSoft },
+  }[state];
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Screen loading={loading} error={error} onRetry={reload} refreshing={refreshing} onRefresh={refresh}>
-        {f ? (
-          <>
-            <Card style={{ gap: 14 }}>
-              <SectionHeader icon="office-building-outline" title="Company profile & branding" />
-              <Field label="Registered entity name" value={f.companyName} onChangeText={set('companyName')} placeholder="Your company name" />
-              <Field label="TIN / business reg no" value={f.tin} onChangeText={set('tin')} />
-              <Field label="Principal office location" value={f.address} onChangeText={set('address')} />
+    <Screen loading={loading} error={error} onRetry={reload} refreshing={refreshing} onRefresh={refresh} contentStyle={{ padding: 0, gap: 0 }} fullBleed>
+      {f ? (
+        <>
+          <View style={{ backgroundColor: colors.navy, paddingTop: insets.top + 20, paddingHorizontal: 20, paddingBottom: 56, borderBottomLeftRadius: 40, borderBottomRightRadius: 40 }}>
+            <Constrain style={{ gap: 10 }}>
+            <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800' }}>Settings</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: status.bg, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill }}>
+              <Icon name={status.icon} size={16} color={status.fg} />
+              <Text style={{ color: status.fg, fontWeight: '700', fontSize: 12.5 }}>{status.text}</Text>
+            </View>
+            </Constrain>
+          </View>
+
+          <Constrain style={{ paddingHorizontal: 16, marginTop: -32, gap: 18, paddingBottom: 24 }}>
+            <Section icon="office-building-outline" tint={colors.mint} title="Company">
+              <Field label="Company name" value={f.companyName} onChangeText={set('companyName')} placeholder="Your company name" />
+              <Field label="TIN / registration no." value={f.tin} onChangeText={set('tin')} />
+              <Field label="Office address" value={f.address} onChangeText={set('address')} />
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <Field label="Phone" value={f.phone} onChangeText={set('phone')} keyboardType="phone-pad" style={{ flex: 1 }} />
                 <Field label="Email" value={f.email} onChangeText={set('email')} keyboardType="email-address" autoCapitalize="none" style={{ flex: 1 }} />
               </View>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <ImageBox title="COMPANY LOGO" uri={f.logoUrl} icon="image-outline" onPick={pick('logoUrl', { maxWidth: 400 })} onClear={() => set('logoUrl')(null)} />
-                <ImageBox title="SIGNATURE" uri={f.signatureUrl} icon="draw" onPick={pick('signatureUrl', { maxWidth: 500, png: true })} onClear={() => set('signatureUrl')(null)} />
-              </View>
-              <Field label="Prepared by (default name)" value={f.preparerName} onChangeText={set('preparerName')} placeholder="Kwame Addae" />
+            </Section>
+
+            <Section icon="account-edit-outline" tint="#E4DAFB" title="Prepared by">
+              <Field label="Name" value={f.preparerName} onChangeText={set('preparerName')} placeholder="Kwame Addae" />
               <Field label="Title" value={f.preparerTitle} onChangeText={set('preparerTitle')} placeholder="Lead Quantity Surveyor" />
-              <Field label="Payment / bank details (printed on certificate)" value={f.bankDetails} onChangeText={set('bankDetails')} multiline />
-            </Card>
+              <Field label="Payment details (printed on certificate)" value={f.bankDetails} onChangeText={set('bankDetails')} multiline />
+            </Section>
 
-            <Card style={{ gap: 14 }}>
-              <SectionHeader icon="cash-multiple" title="Financial & claim defaults" />
-              <Field label="Contract currency" value={`${f.currency} (Ghana Cedis)`} editable={false} right={<Icon name="lock-outline" size={18} color={colors.textMuted} />} />
-              <Field label="Default levy / retention" value={f.defaultLevyPercent} onChangeText={set('defaultLevyPercent')} keyboardType="decimal-pad" suffix="%" />
-              <Text style={{ color: colors.textMuted, fontSize: 12 }}>Applied to new projects and claims; each can override it.</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.container, borderRadius: 12, padding: 14 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: '700', color: colors.text }}>Auto-calculate Balance Brought Forward</Text>
-                  <Text style={{ color: colors.textMuted, fontSize: 12 }}>New claims start with the previous claim’s unpaid balance. You can still edit it.</Text>
-                </View>
-                <Switch value={!!f.autoBalanceForward} onValueChange={set('autoBalanceForward')} trackColor={{ true: colors.primary, false: colors.outline }} />
+            <Section icon="percent-outline" tint={colors.accentSoft} title="Claim defaults">
+              <Field label="Default markup %" value={f.defaultLevyPercent} onChangeText={set('defaultLevyPercent')} keyboardType="decimal-pad" suffix="%" />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.container, borderRadius: 22, padding: 14 }}>
+                <Text style={{ flex: 1, fontWeight: '700', color: colors.text }}>Carry the unpaid balance into the next claim</Text>
+                <Switch value={!!f.autoBalanceForward} onValueChange={set('autoBalanceForward')} trackColor={{ true: colors.primary, false: colors.outline }} thumbColor="#fff" />
               </View>
-            </Card>
+            </Section>
 
-            <Card style={{ gap: 12 }}>
-              <SectionHeader icon="ruler-square" title="Units" />
+            <Section icon="ruler-square" tint={colors.mintSoft} title="Units">
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {f.units.map((u) => (
-                  <Pressable key={u} onPress={() => set('units')(f.units.filter((x) => x !== u))} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.container, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill }}>
-                    <Text style={{ fontWeight: '600', color: colors.text }}>{u}</Text>
+                  <Pressable key={u} onPress={() => change({ units: f.units.filter((x) => x !== u) })}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.container, paddingLeft: 14, paddingRight: 10, paddingVertical: 9, borderRadius: radius.pill }}>
+                    <Text style={{ fontWeight: '700', color: colors.text }}>{u}</Text>
                     <Icon name="close" size={14} color={colors.textMuted} />
                   </Pressable>
                 ))}
               </View>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.container, borderRadius: radius.pill, paddingLeft: 18, paddingRight: 6 }}>
                 <TextInput value={newUnit} onChangeText={setNewUnit} placeholder="Add a unit (e.g. Trips)" placeholderTextColor="#9AA0B4" onSubmitEditing={addUnit}
-                  style={{ flex: 1, backgroundColor: colors.container, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 10, fontSize: 16, color: colors.text }} />
-                <Button title="Add" compact variant="soft" onPress={addUnit} />
+                  style={{ flex: 1, paddingVertical: 12, fontSize: 16, color: colors.text }} />
+                <Button title="Add" compact onPress={addUnit} />
               </View>
-            </Card>
-
-            <Card style={{ gap: 12 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <SectionHeader icon="book-open-variant" title="Unit rates catalog" />
-                <View style={{ backgroundColor: colors.mintSoft, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary }}>{f.commonItems.length} ITEMS</Text>
-                </View>
-              </View>
-              <Text style={{ color: colors.textMuted, fontSize: 12 }}>These appear as quick-insert buttons in the claim editor.</Text>
-              {f.commonItems.length === 0 ? <Text style={{ color: colors.textMuted }}>No standard items yet.</Text> : null}
-              {f.commonItems.map((c, i) => (
-                <View key={i} style={{ backgroundColor: colors.container, borderRadius: 12, padding: 12, gap: 8 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <TextInput value={c.description} onChangeText={(t) => setItem(i, { description: t })} placeholder="Description" placeholderTextColor="#9AA0B4"
-                      style={{ flex: 1, fontSize: 16, fontWeight: '700', color: colors.text, paddingVertical: 4 }} />
-                    <IconButton icon="trash-can-outline" bg="transparent" color={colors.textMuted}
-                      onPress={() => { setSaved(false); setF((s) => ({ ...s, commonItems: s.commonItems.filter((_, j) => j !== i) })); }} />
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <View style={{ flex: 1 }}>
-                      <Label>Default rate ({f.currency})</Label>
-                      <TextInput value={c.defaultRate} onChangeText={(t) => setItem(i, { defaultRate: numeric(t) })} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#9AA0B4"
-                        style={{ backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 16, fontWeight: '600', color: colors.text, marginTop: 4 }} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Label>Per (unit)</Label>
-                      <TextInput value={c.unit} onChangeText={(t) => setItem(i, { unit: t })} placeholder="Bags" placeholderTextColor="#9AA0B4"
-                        style={{ backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 16, fontWeight: '600', color: colors.text, marginTop: 4 }} />
-                    </View>
-                  </View>
-                  {c.defaultRate !== '' ? <Text style={{ color: colors.primary, fontWeight: '700' }}>{money(c.defaultRate, f.currency)} per {c.unit || 'unit'}</Text> : null}
-                </View>
-              ))}
-              <Button title="Add custom standard item" icon="plus-circle-outline" variant="soft"
-                onPress={() => { setSaved(false); setF((s) => ({ ...s, commonItems: [...s.commonItems, { description: '', unit: '', defaultRate: '', note: '' }] })); }} />
-            </Card>
-
-            <Button title="Save settings" icon="content-save-outline" loading={saving} onPress={save} />
-            {saved ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.mintSoft, borderRadius: 12, padding: 12 }}>
-                <Icon name="check-circle" size={20} />
-                <Text style={{ color: colors.primary, fontWeight: '600' }}>Company profile and unit rates updated successfully.</Text>
-              </View>
-            ) : null}
-          </>
-        ) : null}
-      </Screen>
-    </KeyboardAvoidingView>
+            </Section>
+          </Constrain>
+        </>
+      ) : null}
+    </Screen>
   );
 }

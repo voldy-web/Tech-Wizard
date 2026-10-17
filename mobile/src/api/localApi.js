@@ -1,11 +1,14 @@
-// In-memory fake of the backend, used when EXPO_PUBLIC_USE_MOCK=true.
-// Lets you run and test the whole UI without Java. Same method names and response shapes as client.js.
-// Data resets whenever the app reloads. Calculations reuse src/lib/calc.js (the same rules as the server).
-import { computeTotals, measuredAmount, toPesewas } from '../lib/calc';
+// The OFFLINE data layer: the whole app runs against this, on the phone, with no internet.
+// Same method names and response shapes as the cloud API in client.js, and the same rules as the Java
+// backend (week numbering, Balance B/F carry-forward, locking, payments, dashboard totals).
+// Every change is saved to a file on the phone (see storage.js) and reloaded the next time the app opens.
+import { computeTotals, measuredAmount, roundUpTotal, toPesewas } from '../lib/calc';
 import { todayIso } from '../lib/format';
+import { clearData, readData, writeData } from './storage';
 
-const DELAY_MS = 120;
-const wait = (v) => new Promise((r) => setTimeout(() => r(JSON.parse(JSON.stringify(v ?? null))), DELAY_MS));
+const FORMAT_VERSION = 1;
+// Return a deep copy so screens can never mutate the stored data by accident.
+const wait = (v) => Promise.resolve(JSON.parse(JSON.stringify(v ?? null)));
 const fail = (status, message) => { const e = new Error(message); e.isApiError = true; e.status = status; return e; };
 const num = (p) => p / 100;
 
@@ -15,8 +18,7 @@ const addDays = (iso, n) => {
   return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
 };
 
-let seq = 100;
-const nextId = () => ++seq;
+const nextId = () => ++db.seq;
 
 const initials = (name) => {
   const s = (name || '').trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 3).toUpperCase();
@@ -37,19 +39,91 @@ function freshState() {
       ],
     },
     projects: [], claims: [],
+    version: FORMAT_VERSION, seq: 100,
   };
 }
 let db = freshState();
 
-/** Test helper / reset button. */
-export function resetMock({ demo = true } = {}) {
+/** Fill in anything an older/partial backup is missing so the app never crashes on it. */
+function normalise(raw) {
+  const base = freshState();
+  return {
+    ...base,
+    ...raw,
+    settings: { ...base.settings, ...(raw.settings || {}) },
+    projects: Array.isArray(raw.projects) ? raw.projects : [],
+    claims: (Array.isArray(raw.claims) ? raw.claims : []).map((c) => ({ items: [], payments: [], ...c })),
+    seq: Number.isFinite(raw.seq) ? raw.seq : 100,
+    version: FORMAT_VERSION,
+  };
+}
+
+const looksValid = (raw) => raw && typeof raw === 'object' && Array.isArray(raw.projects) && Array.isArray(raw.claims) && raw.settings;
+
+let readyPromise = null;
+/** Load saved data from the phone (once). Every API call waits for this. */
+export function initLocal() {
+  if (!readyPromise) {
+    readyPromise = (async () => {
+      const text = await readData();
+      if (!text) return;
+      try {
+        const raw = JSON.parse(text);
+        if (looksValid(raw)) db = normalise(raw);
+      } catch { /* corrupted file: start empty rather than crash */ }
+    })();
+  }
+  return readyPromise;
+}
+
+const persist = () => writeData(JSON.stringify(db));
+
+/** Tests / "Erase all data": start from a clean slate (optionally with the sample project). */
+export function resetLocal({ demo = false } = {}) {
   db = freshState();
-  seq = 100;
+  readyPromise = Promise.resolve();
   if (demo) seed();
 }
 
 const totalsOf = (c) => computeTotals(
   c.items.map((i) => ({ type: i.type, qty: i.qty, rate: i.rate, amount: i.amount })), c.levyPercent, c.balanceBroughtForward);
+
+const projectClaimsAsc = (projectId) => db.claims.filter((c) => c.projectId === projectId).sort((a, b) => a.weekNumber - b.weekNumber);
+
+/**
+ * Part of this claim's unpaid balance that LATER claims have already paid (in pesewas).
+ * A later claim carries this claim's unpaid balance as its Balance B/F; money received on the later claim
+ * settles that B/F first, so it must stop showing as "still owed" on this claim.
+ */
+function settledLater(c) {
+  const list = projectClaimsAsc(c.projectId);
+  const next = list[list.findIndex((x) => x.id === c.id) + 1];
+  if (!next) return 0;
+  const received = toPesewas(next.amountPaid) + settledLater(next);          // everything received from the next claim onwards
+  const own = Math.max(0, totalsOf(c).grandTotal - toPesewas(c.amountPaid)); // what is still unpaid on this claim itself
+  return Math.min(received, toPesewas(next.balanceBroughtForward), own);
+}
+
+/** Money picture for one project: what was claimed, what was received, what is still owed. All pesewas. */
+function ledger(projectId) {
+  const cs = projectClaimsAsc(projectId).filter((c) => c.status !== 'DRAFT');
+  const paid = db.claims.filter((c) => c.projectId === projectId).reduce((sum, c) => sum + toPesewas(c.amountPaid), 0);
+  const last = cs[cs.length - 1];
+  const owed = last ? Math.max(0, totalsOf(last).grandTotal - toPesewas(last.amountPaid)) : 0;
+  const lastApproved = [...cs].reverse().find((c) => c.status === 'APPROVED' || c.status === 'PAID');
+  const approved = lastApproved ? paid + Math.max(0, totalsOf(lastApproved).grandTotal - toPesewas(lastApproved.amountPaid)) : 0;
+  return { claimed: paid + owed, approved, paid, owed, submitted: cs.length };
+}
+
+/** Keep APPROVED / PAID in step with what is really settled (a later payment can settle an earlier claim). */
+function reconcile(projectId) {
+  db.claims.filter((c) => c.projectId === projectId).forEach((c) => {
+    if (c.status !== 'APPROVED' && c.status !== 'PAID') return;
+    const open = totalsOf(c).grandTotal - toPesewas(c.amountPaid) - settledLater(c);
+    if (c.status === 'APPROVED' && totalsOf(c).grandTotal > 0 && open <= 0) c.status = 'PAID';
+    else if (c.status === 'PAID' && open > 0) c.status = 'APPROVED';
+  });
+}
 
 function view(c, withItems) {
   const p = db.projects.find((x) => x.id === c.projectId);
@@ -62,7 +136,8 @@ function view(c, withItems) {
     status: c.status, levyPercent: c.levyPercent, balanceBroughtForward: c.balanceBroughtForward,
     approvedBy: c.approvedBy, approvedDate: c.approvedDate, amountPaid: c.amountPaid, paymentDate: c.paymentDate,
     paymentReference: c.paymentReference, notes: c.notes,
-    subTotal: num(t.subTotal), levy: num(t.levy), total: num(t.total), grandTotal: num(t.grandTotal), outstanding: num(t.grandTotal - paid),
+    subTotal: num(t.subTotal), levy: num(t.levy), total: num(t.total), grandTotal: num(t.grandTotal), roundedTotal: num(roundUpTotal(t.grandTotal)),
+    settledLater: num(settledLater(c)), outstanding: num(Math.max(0, t.grandTotal - paid - settledLater(c))),
     items: null, payments: null,
   };
   if (withItems) {
@@ -73,12 +148,9 @@ function view(c, withItems) {
 }
 
 function projectView(p) {
-  const cs = db.claims.filter((c) => c.projectId === p.id).sort((a, b) => b.weekNumber - a.weekNumber);
-  let claimed = 0; let paid = 0;
-  cs.forEach((c) => { if (c.status !== 'DRAFT') claimed += totalsOf(c).total; paid += toPesewas(c.amountPaid); });
-  const latest = cs.find((c) => c.status !== 'DRAFT');
-  const outstanding = latest ? totalsOf(latest).grandTotal - toPesewas(latest.amountPaid) : 0;
-  return { ...p, claimCount: cs.length, totalClaimed: num(claimed), totalPaid: num(paid), outstanding: num(outstanding) };
+  const cs = db.claims.filter((c) => c.projectId === p.id);
+  const l = ledger(p.id);
+  return { ...p, claimCount: cs.length, totalClaimed: num(l.claimed), totalPaid: num(l.paid), outstanding: num(l.owed) };
 }
 
 const find = (id) => {
@@ -127,19 +199,17 @@ function newClaim(projectId, from) {
   return c;
 }
 
-export const mockApi = {
+const impl = {
   health: async () => wait({ status: 'UP' }),
 
   dashboard: async () => {
-    let claimed = 0; let approved = 0; let paid = 0; let submitted = 0;
-    db.claims.forEach((c) => {
-      const t = totalsOf(c).total;
-      paid += toPesewas(c.amountPaid);
-      if (c.status !== 'DRAFT') { claimed += t; submitted += 1; }
-      if (c.status === 'APPROVED' || c.status === 'PAID') approved += t;
+    let claimed = 0; let approved = 0; let paid = 0; let outstanding = 0; let submitted = 0;
+    db.projects.forEach((p) => {
+      const l = ledger(p.id);
+      claimed += l.claimed; approved += l.approved; paid += l.paid; outstanding += l.owed; submitted += l.submitted;
     });
     return wait({
-      claimed: num(claimed), approved: num(approved), paid: num(paid), outstanding: num(claimed - paid),
+      claimed: num(claimed), approved: num(approved), paid: num(paid), outstanding: num(outstanding),
       claimCount: db.claims.length, submittedCount: submitted, projectCount: db.projects.length,
       projects: db.projects.map(projectView).reverse(),
       recentClaims: [...db.claims].sort((a, b) => b.id - a.id).slice(0, 5).map((c) => view(c, false)),
@@ -194,7 +264,7 @@ export const mockApi = {
     const c = editable(find(id));
     c.items = items.map((d) => {
       if (d.type === 'LUMP_SUM') {
-        return { id: nextId(), type: 'LUMP_SUM', description: d.description, qty: 1, unit: 'Item', rate: null, amount: num(toPesewas(d.amount)), enteredAmount: null, remarks: d.remarks };
+        return { id: nextId(), type: 'LUMP_SUM', description: d.description, qty: 1, unit: 'Item', rate: null, amount: num(toPesewas(d.amount)), enteredAmount: null, remarks: d.remarks, qtyText: d.qtyText ?? '1 Item', priceText: d.priceText ?? '' };
       }
       const calc = measuredAmount({ qty: d.qty, rate: d.rate });
       const entered = d.enteredAmount ?? d.amount;
@@ -220,6 +290,7 @@ export const mockApi = {
       if (target > paid) pay(c, num(target - paid), b.paymentDate, b.paymentReference, b.paymentNote);
     } else { c.approvedBy = null; c.approvedDate = null; }
     syncPaid(c);
+    reconcile(c.projectId);
     return wait(view(c, true));
   },
   addPayment: async (id, b) => {
@@ -227,6 +298,7 @@ export const mockApi = {
     if (c.status !== 'APPROVED' && c.status !== 'PAID') throw fail(409, 'Payments can only be logged against an approved claim.');
     pay(c, b.amount, b.paymentDate, b.reference, b.note);
     syncPaid(c);
+    reconcile(c.projectId);
     return wait(view(c, true));
   },
   removePayment: async (id, paymentId) => {
@@ -234,19 +306,34 @@ export const mockApi = {
     c.payments = c.payments.filter((p) => p.id !== Number(paymentId));
     recomputePaid(c);
     if (c.status === 'PAID' && toPesewas(c.amountPaid) < totalsOf(c).grandTotal) c.status = 'APPROVED';
+    reconcile(c.projectId);
     return wait(view(c, true));
   },
 
   settings: async () => wait(db.settings),
   saveSettings: async (b) => { db.settings = { ...db.settings, ...b }; return wait(db.settings); },
+
+  // ---- offline-only: backup, restore, erase, sample data ----
+  exportBackup: async () => JSON.stringify({ app: 'tech-wizard', exportedAt: new Date().toISOString(), data: db }, null, 2),
+  importBackup: async (text) => {
+    let raw;
+    try { raw = JSON.parse(text); } catch { throw fail(400, 'That file is not a valid Tech Wizard backup.'); }
+    const data = raw && raw.app === 'tech-wizard' && raw.data ? raw.data : raw;   // accept a bare data object too
+    if (!looksValid(data)) throw fail(400, 'That file is not a valid Tech Wizard backup.');
+    db = normalise(data);
+    return wait({ projects: db.projects.length, claims: db.claims.length });
+  },
+  eraseAll: async () => { db = freshState(); await clearData(); return wait(null); },
+  loadSampleData: async () => { seed(); return wait(null); },
 };
 
 function seed() {
-  db.settings.companyName = 'Addae & Associates Engineering';
-  db.settings.preparerName = 'Kwame Addae';
-  db.settings.preparerTitle = 'Lead Quantity Surveyor';
-  db.settings.address = 'Plot 14, Ring Road Central, Accra, Ghana';
-  db.settings.tin = 'C00349281X';
+  const fill = (k, v) => { if (!db.settings[k]) db.settings[k] = v; };   // never overwrite the user's own details
+  fill('companyName', 'Addae & Associates Engineering');
+  fill('preparerName', 'Kwame Addae');
+  fill('preparerTitle', 'Lead Quantity Surveyor');
+  fill('address', 'Plot 14, Ring Road Central, Accra, Ghana');
+  fill('tin', 'C00349281X');
   const p = { id: nextId(), name: 'East Legon Residential Complex', client: 'Mr. Kofi Osei',
     scopeOfWork: '4-Storey Reinforced Concrete Framing, Masonry and Structural Finishes',
     location: 'Plot 42, Ambassadorial Enclave, East Legon', levyPercent: 7, contractSum: 1250000, createdAt: new Date().toISOString() };
@@ -266,4 +353,19 @@ function seed() {
   newClaim(p.id);
 }
 
-seed();
+
+// ---- public API: wait for the saved data to load, and save after every change ----
+const WRITES = new Set([
+  'createProject', 'updateProject', 'deleteProject', 'createClaim', 'updateClaim', 'deleteClaim', 'saveItems',
+  'duplicateClaim', 'setStatus', 'addPayment', 'removePayment', 'saveSettings', 'importBackup', 'eraseAll', 'loadSampleData',
+]);
+
+export const localApi = {};
+Object.keys(impl).forEach((name) => {
+  localApi[name] = async (...args) => {
+    await initLocal();
+    const result = await impl[name](...args);
+    if (WRITES.has(name) && name !== 'eraseAll') await persist();
+    return result;
+  };
+});

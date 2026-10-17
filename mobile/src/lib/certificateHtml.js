@@ -1,4 +1,4 @@
-import { formatAmount, toPesewas } from './calc';
+import { formatAmount, roundUpTotal, toPesewas } from './calc';
 import { pad } from './format';
 
 const esc = (v) => String(v ?? '')
@@ -43,9 +43,9 @@ function duration(from, to) {
 const initials = (name) => (name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
 /**
- * Formal A4 "CERTIFICATE OF CLAIM", laid out like the contractor's paper certificate:
- * navy title banner · project/client/scope/duration block · weekly itemised schedule ·
- * Sub-Total / Levy / Total / Balance B/F / Grand Total · Prepared & Approved boxes · numbered notes.
+ * Formal A4 "CERTIFICATE OF CLAIM": navy letterhead band · project/client/scope/contract-sum/duration card ·
+ * weekly itemised schedule · Sub-Total / Markup / Total / Balance B/F / Grand Total / Rounded Total ·
+ * Prepared & Approved cards · numbered notes.
  *
  * The same string is shown in the preview and handed to expo-print to make the PDF.
  * All figures come from the server (source of truth).
@@ -61,132 +61,150 @@ export function buildCertificateHtml(claim, settings = {}) {
   const approved = claim.status === 'APPROVED' || claim.status === 'PAID';
   const scope = (claim.scopeOfWork || '').trim();
   const subtitle = scope && scope.length <= 80 && !scope.includes('\n') ? scope : '';
-  const hasLetterhead = !!(settings.companyName || logo);
+  const hasContract = claim.contractSum !== null && claim.contractSum !== undefined && claim.contractSum !== '' && toPesewas(claim.contractSum) > 0;
+  const rounded = formatAmount(roundUpTotal(toPesewas(claim.grandTotal)));
 
   const rows = items.map((it, i) => {
     const lump = it.type === 'LUMP_SUM';
-    const qty = lump ? '1 Item' : `${esc(qtyText(it.qty))}${it.unit ? ` ${esc(it.unit)}` : ''}`;
+    const qty = lump ? esc(it.qtyText ?? '1 Item') : `${esc(qtyText(it.qty))}${it.unit ? ` ${esc(it.unit)}` : ''}`;
     return `<tr>
-      <td class="c">${i + 1}</td>
+      <td class="c n">${i + 1}</td>
       <td>${esc(it.description) || '&nbsp;'}</td>
       <td class="c">${qty}</td>
-      <td class="r">${lump ? '1 Item' : m(it.rate)}</td>
-      <td class="r">${m(it.amount)}</td>
+      <td class="r${lump ? ' wrap' : ''}">${lump ? esc(it.priceText ?? '') : m(it.rate)}</td>
+      <td class="r b">${m(it.amount)}</td>
       <td class="rem">${esc(it.remarks)}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" class="c empty">No items</td></tr>';
 
   const notes = [
     `All amounts are expressed in Ghana Cedis (${esc(cur)}).`,
-    `A ${levyPct}% levy has been applied to the sub-total in accordance with applicable statutory requirements.`,
+    `A ${levyPct}% markup has been added to the sub-total.`,
     'Balance Brought Forward (B/F) reflects outstanding amounts carried over from the previous claim period.',
+    'The Rounded Total is the Grand Total rounded up to a round figure.',
   ];
   const custom = (claim.notes || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const noteItems = [...notes.map((n) => n), ...custom.map(esc)];
+  const noteItems = [...notes, ...custom.map(esc)];
 
+  const cell = (label, value) => `<div class="cell"><div class="k">${label}</div><div class="v">${value}</div></div>`;
   const info = [
-    ['Project:', esc(claim.projectName), 'Client:', esc(claim.client) || '—'],
-    ['Scope of Work:', nl2br(scope) || '—', 'Duration:', esc(duration(claim.periodFrom, claim.periodTo)) || '—'],
-  ];
-  if (claim.location) info.push(['Location:', esc(claim.location), 'Week:', `Week ${claim.weekNumber} · ${esc(claim.reference)}`]);
+    cell('Project', esc(claim.projectName)),
+    cell('Client', esc(claim.client) || '—'),
+    cell('Scope of work', nl2br(scope) || '—'),
+    cell('Duration', esc(duration(claim.periodFrom, claim.periodTo)) || '—'),
+    hasContract ? cell('Contract sum', `${esc(cur)} ${m(claim.contractSum)}`) : '',
+    claim.location ? cell('Location', esc(claim.location)) : '',
+  ].join('');
 
-  const footer = `This document is a formal Certificate of Claim — ${esc(claim.projectName)} | Week ${claim.weekNumber}`;
+  const contact = [settings.address, settings.phone, settings.email, settings.tin && `TIN: ${settings.tin}`].filter(Boolean).map(esc).join(' • ');
+  const footer = `Certificate of Claim — ${esc(claim.projectName)} | Week ${claim.weekNumber} | ${esc(claim.reference)}`;
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=794, minimum-scale=0.1, maximum-scale=5, user-scalable=yes"/>
 <title>Certificate of Claim ${esc(claim.reference)}</title>
 <style>
-  @page { size: A4; margin: 16mm 14mm 16mm 14mm; }
+  @page { size: A4; margin: 14mm 12mm 14mm 12mm; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #ffffff; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; font-size: 12.5px; line-height: 1.35; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .page { width: 100%; max-width: 794px; margin: 0 auto; padding: 26px 40px 40px; }
-  .run { display: flex; justify-content: space-between; color: #8a8a8a; font-size: 12px; padding-bottom: 4px; border-bottom: 1px solid #2e75b6; margin-bottom: 8px; }
-  .letter { display: flex; align-items: center; gap: 12px; margin: 6px 0 8px; }
-  .logo { width: 48px; height: 48px; border-radius: 6px; background: #1b3a5c; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 17px; overflow: hidden; flex: none; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #15183a; font-size: 12.5px; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 100%; max-width: 794px; margin: 0 auto; padding: 0 0 34px; }
+  .hero { background: #0f1236; color: #fff; padding: 26px 40px 24px; border-bottom: 5px solid #f4b942; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .logo { width: 52px; height: 52px; border-radius: 26px; background: #1c2150; color: #6fe7e0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; overflow: hidden; flex: none; border: 2px solid #5b3cc4; }
   .logo img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
-  .co { font-weight: 700; font-size: 15px; color: #1b3a5c; } .addr { color: #555; font-size: 11px; }
-  .banner { background: #1b3a5c; color: #fff; text-align: center; padding: 20px 10px 18px; }
-  .banner h1 { margin: 0; font-size: 30px; letter-spacing: 1px; }
-  .banner .sub { font-style: italic; color: #b9c9dc; margin-top: 6px; font-size: 14px; }
+  .co { font-weight: 700; font-size: 16px; } .addr { color: #b8bce0; font-size: 11px; margin-top: 2px; }
+  .title { margin: 22px 0 0; font-size: 31px; letter-spacing: 2px; font-weight: 800; }
+  .sub { color: #6fe7e0; margin-top: 6px; font-size: 14px; font-style: italic; }
+  .pill { display: inline-block; margin-top: 14px; background: #5b3cc4; color: #fff; border-radius: 20px; padding: 5px 16px; font-weight: 700; font-size: 12px; letter-spacing: .6px; }
+  .body { padding: 0 40px; }
+  .info { display: flex; flex-wrap: wrap; gap: 0; margin: 24px 0 22px; background: #f5f4fc; border: 1px solid #e0dff4; border-radius: 14px; overflow: hidden; }
+  .cell { width: 50%; padding: 11px 16px; border-bottom: 1px solid #e0dff4; }
+  .cell:nth-child(odd) { border-right: 1px solid #e0dff4; }
+  .k { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #5b3cc4; font-weight: 700; }
+  .v { margin-top: 3px; font-weight: 600; font-size: 13px; }
   table { border-collapse: collapse; width: 100%; }
-  .info { margin: 24px 0 24px; }
-  .info td { padding: 8px 10px; vertical-align: top; background: #d6e4f0; }
-  .info td.l { width: 15%; font-weight: 700; color: #1b3a5c; } .info td.v { background: #fff; width: 35%; }
-  .info td.v + td.l { background: #d6e4f0; }
-  .info tr td:first-child { background: #d6e4f0; }
-  .week { background: #2e75b6; color: #fff; font-weight: 700; text-align: center; padding: 7px; letter-spacing: .4px; font-size: 13px; }
-  .grid th { background: #1b3a5c; color: #fff; padding: 8px 6px; font-size: 13px; border: 1px solid #fff; }
-  .grid td { padding: 7px 8px; border: 1px solid #c3d2e3; }
-  .grid tbody tr:nth-child(even) td { background: #f0f4fa; }
+  .wk { margin: 0 0 8px; font-weight: 800; color: #0f1236; font-size: 13px; letter-spacing: .8px; }
+  .wk span { color: #5b3cc4; }
+  .grid { border: 1px solid #e0dff4; border-radius: 12px; overflow: hidden; }
+  .grid th { background: #0f1236; color: #fff; padding: 10px 8px; overflow: hidden; font-size: 12px; font-weight: 700; }
+  .grid td { padding: 9px 8px; border-top: 1px solid #ecebf8; vertical-align: top; }
+  .grid tbody tr:nth-child(even) td { background: #f8f7fe; }
   .grid tbody tr { page-break-inside: avoid; }
-  td.c, th.c { text-align: center; } td.r { text-align: right; white-space: nowrap; } td.rem { font-size: 11px; color: #444; }
-  td.empty { color: #777; padding: 16px; }
-  .tot td { padding: 9px 8px; border: 1px solid #c3d2e3; }
-  .tot .lab { font-weight: 700; } .tot .val { text-align: center; font-weight: 700; white-space: nowrap; }
-  .tot .sub td { background: #d6e4f0; color: #1b3a5c; }
-  .tot .levy td { background: #fff; } .tot .levy .val { color: #c0392b; }
-  .tot .total td { background: #1b3a5c; color: #fff; }
-  .tot .bf td { background: #d6e4f0; color: #1b3a5c; }
-  .tot .grand td { background: #2e75b6; color: #fff; }
-  .tot .blank { background: #fff !important; border: none; }
-  .tot { page-break-inside: avoid; }
-  .sigs { display: flex; gap: 38px; margin-top: 34px; page-break-inside: avoid; }
-  .sig { flex: 1; background: #f0f4fa; padding: 14px 16px; min-height: 130px; }
-  .sig .t { font-weight: 700; color: #1b3a5c; font-size: 14px; }
-  .sig .ln { border-bottom: 1px solid #333; margin-top: 24px; min-height: 22px; font-weight: 700; padding-bottom: 2px; }
+  td.wrap { white-space: normal; word-break: break-word; }
+  td.c, th.c { text-align: center; } td.r { text-align: right; white-space: nowrap; } td.b { font-weight: 700; } td.n { color: #5b3cc4; font-weight: 700; }
+  td.rem { font-size: 11px; color: #555a78; } td.empty { color: #777; padding: 16px; }
+  table.grid { table-layout: fixed; }
+  .tot { margin-top: 12px; page-break-inside: avoid; }
+  .tot td { padding: 10px 8px; border-top: 1px solid #ecebf8; }
+  .tot .lab { font-weight: 700; padding-left: 14px; } .tot .val { text-align: right; font-weight: 700; white-space: nowrap; }
+  .tot .r-sub td { background: #f5f4fc; }
+  .tot .r-levy td { background: #fff; } .tot .r-levy .val { color: #b3261e; }
+  .tot .r-total td { background: #e0dff4; }
+  .tot .r-bf td { background: #fff; }
+  .tot .r-grand td { background: #5b3cc4; color: #fff; font-size: 13.5px; }
+  .tot .r-round td { background: #f4b942; color: #3a2700; font-size: 14.5px; font-weight: 800; }
+  .sigs { display: flex; gap: 22px; margin-top: 30px; page-break-inside: avoid; }
+  .sig { flex: 1; background: #f5f4fc; border: 1px solid #e0dff4; border-radius: 14px; padding: 14px 16px; min-height: 120px; }
+  .sig .t { font-weight: 800; color: #0f1236; font-size: 13px; }
+  .sig .ln { border-bottom: 1px solid #15183a; margin-top: 22px; min-height: 22px; font-weight: 700; padding-bottom: 2px; }
   .sig img { max-height: 44px; max-width: 60%; display: block; margin-top: 8px; }
-  .sig .meta { font-size: 12px; margin-top: 6px; } .sig .blank { color: #333; }
-  .notes { margin-top: 26px; border-left: 4px solid #2e75b6; padding-left: 12px; page-break-inside: avoid; }
-  .notes b { color: #1b3a5c; font-size: 14px; } .notes ol { margin: 6px 0 0 0; padding-left: 20px; font-size: 12px; } .notes li { margin: 2px 0; }
-  .foot { margin-top: 26px; border-top: 1px solid #2e75b6; padding-top: 6px; text-align: center; color: #8a8a8a; font-style: italic; font-size: 11px; }
+  .sig .meta { font-size: 12px; margin-top: 6px; color: #333; }
+  .notes { margin-top: 24px; border-left: 4px solid #6fe7e0; padding-left: 14px; page-break-inside: avoid; }
+  .notes b { color: #0f1236; font-size: 13px; } .notes ol { margin: 6px 0 0 0; padding-left: 20px; font-size: 11.5px; color: #333; } .notes li { margin: 3px 0; }
+  .foot { margin: 26px 40px 0; border-top: 2px solid #f4b942; padding-top: 8px; text-align: center; color: #7b7f9f; font-size: 10.5px; }
 </style></head>
 <body><div class="page">
-  <div class="run"><span>CERTIFICATE OF CLAIM</span><span>${esc(claim.projectName)}</span></div>
-  ${hasLetterhead ? `<div class="letter">
-    <div class="logo">${logo ? `<img src="${logo}"/>` : esc(initials(settings.companyName))}</div>
-    <div><div class="co">${esc(settings.companyName)}</div>
-    <div class="addr">${[settings.address, settings.phone, settings.email, settings.tin && `TIN: ${settings.tin}`].filter(Boolean).map(esc).join(' • ')}</div></div>
-  </div>` : ''}
-
-  <div class="banner"><h1>CERTIFICATE OF CLAIM</h1>${subtitle ? `<div class="sub">${esc(subtitle)}</div>` : ''}</div>
-
-  <table class="info">${info.map((r) => `<tr><td class="l">${r[0]}</td><td class="v">${r[1]}</td><td class="l">${r[2]}</td><td class="v">${r[3]}</td></tr>`).join('')}</table>
-
-  <table class="grid">
-    <thead>
-      <tr><td colspan="6" class="week">WEEK ${claim.weekNumber} — ITEMISED SCHEDULE OF WORKS</td></tr>
-      <tr><th class="c" style="width:7%">Item</th><th style="text-align:left">Description</th><th class="c" style="width:15%">Qty</th><th style="width:14%">Unit Price<br/>(${esc(cur)})</th><th style="width:14%">Amount<br/>(${esc(cur)})</th><th style="width:12%">Remarks</th></tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <table class="tot">
-    <tr class="sub"><td style="width:7%"></td><td class="lab" style="padding-left:14px">Sub-Total</td><td class="val" style="width:15%">${m(claim.subTotal)}</td><td class="blank" colspan="3"></td></tr>
-    <tr class="levy"><td></td><td class="lab">Add ${levyPct}% (Levy)</td><td class="val">${m(claim.levy)}</td><td class="blank" colspan="3"></td></tr>
-    <tr class="total"><td></td><td class="lab">TOTAL</td><td class="val">${m(claim.total)}</td><td class="blank" colspan="3"></td></tr>
-    <tr class="bf"><td></td><td class="lab">Balance Brought Forward (B/F)</td><td class="val">${m(claim.balanceBroughtForward)}</td><td class="blank" colspan="3"></td></tr>
-    <tr class="grand"><td></td><td class="lab">GRAND TOTAL</td><td class="val">${esc(cur)} ${m(claim.grandTotal)}</td><td class="blank" colspan="3"></td></tr>
-  </table>
-
-  <div class="sigs">
-    <div class="sig">
-      <div class="t">Prepared &amp; Submitted By:</div>
-      ${sig ? `<img src="${sig}"/>` : ''}
-      <div class="ln">${esc(preparer)}</div>
-      <div class="meta">Name: ${esc(preparer)}${settings.preparerTitle ? ` (${esc(settings.preparerTitle)})` : ''}</div>
-      <div class="meta">Date: ${esc(longDate(claim.datePrepared))}</div>
-    </div>
-    <div class="sig">
-      <div class="t">Approved By:</div>
-      <div class="ln">${approved ? esc(claim.approvedBy) : ''}</div>
-      <div class="meta">Name: ${approved && claim.approvedBy ? esc(claim.approvedBy) : '<span class="blank">____________________</span>'}</div>
-      <div class="meta">Date: ${approved && claim.approvedDate ? esc(longDate(claim.approvedDate)) : '<span class="blank">____________________</span>'}</div>
-    </div>
+  <div class="hero">
+    ${settings.companyName || logo ? `<div class="brand">
+      <div class="logo">${logo ? `<img src="${logo}"/>` : esc(initials(settings.companyName))}</div>
+      <div><div class="co">${esc(settings.companyName)}</div><div class="addr">${contact}</div></div>
+    </div>` : ''}
+    <h1 class="title">CERTIFICATE OF CLAIM</h1>
+    ${subtitle ? `<div class="sub">${esc(subtitle)}</div>` : ''}
+    <div class="pill">WEEK ${claim.weekNumber} &nbsp;·&nbsp; ${esc(claim.reference)}</div>
   </div>
 
-  <div class="notes"><b>Notes:</b><ol>${noteItems.map((n) => `<li>${n}</li>`).join('')}</ol></div>
-  ${settings.bankDetails ? `<div class="notes" style="margin-top:14px"><b>Payment details:</b><div style="margin-top:4px;font-size:12px">${nl2br(settings.bankDetails)}</div></div>` : ''}
+  <div class="body">
+    <div class="info">${info}</div>
+
+    <div class="wk">WEEK ${claim.weekNumber} — ITEMISED SCHEDULE OF WORKS</div>
+    <table class="grid">
+      <thead>
+        <tr><th class="c" style="width:8%">Item</th><th style="text-align:left">Description</th><th class="c" style="width:14%">Qty</th><th style="width:15%">Unit Price<br/>(${esc(cur)})</th><th style="width:15%">Amount<br/>(${esc(cur)})</th><th style="width:12%">Remarks</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <table class="grid tot">
+      <colgroup><col style="width:8%"/><col/><col style="width:14%"/><col style="width:15%"/><col style="width:15%"/><col style="width:12%"/></colgroup>
+      <tr class="r-sub"><td colspan="4" class="lab">Sub-Total</td><td class="val">${m(claim.subTotal)}</td><td></td></tr>
+      <tr class="r-levy"><td colspan="4" class="lab">Add ${levyPct}% (Markup)</td><td class="val">${m(claim.levy)}</td><td></td></tr>
+      <tr class="r-total"><td colspan="4" class="lab">TOTAL</td><td class="val">${m(claim.total)}</td><td></td></tr>
+      <tr class="r-bf"><td colspan="4" class="lab">Balance Brought Forward (B/F)</td><td class="val">${m(claim.balanceBroughtForward)}</td><td></td></tr>
+      <tr class="r-grand"><td colspan="4" class="lab">GRAND TOTAL (${esc(cur)})</td><td class="val">${m(claim.grandTotal)}</td><td></td></tr>
+      <tr class="r-round"><td colspan="4" class="lab">ROUNDED TOTAL (${esc(cur)})</td><td class="val">${rounded}</td><td></td></tr>
+    </table>
+
+    <div class="sigs">
+      <div class="sig">
+        <div class="t">Prepared &amp; Submitted By</div>
+        ${sig ? `<img src="${sig}"/>` : ''}
+        <div class="ln">${esc(preparer)}</div>
+        <div class="meta">Name: ${esc(preparer)}${settings.preparerTitle ? ` (${esc(settings.preparerTitle)})` : ''}</div>
+        <div class="meta">Date: ${esc(longDate(claim.datePrepared))}</div>
+      </div>
+      <div class="sig">
+        <div class="t">Approved By</div>
+        <div class="ln">${approved ? esc(claim.approvedBy) : ''}</div>
+        <div class="meta">Name: ${approved && claim.approvedBy ? esc(claim.approvedBy) : '____________________'}</div>
+        <div class="meta">Date: ${approved && claim.approvedDate ? esc(longDate(claim.approvedDate)) : '____________________'}</div>
+      </div>
+    </div>
+
+    <div class="notes"><b>Notes</b><ol>${noteItems.map((n) => `<li>${n}</li>`).join('')}</ol></div>
+    ${settings.bankDetails ? `<div class="notes" style="margin-top:14px"><b>Payment details</b><div style="margin-top:4px;font-size:11.5px">${nl2br(settings.bankDetails)}</div></div>` : ''}
+  </div>
 
   <div class="foot">${footer}</div>
 </div></body></html>`;

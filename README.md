@@ -70,19 +70,22 @@ If it isn't set, the app tries the IP Expo is already serving from. If the app s
 *"Can't reach the Tech Wizard server"*, check: backend running · same Wi-Fi · firewall allows port 8080 · correct IP.
 Restart `npx expo start` (add `-c` to clear cache) after changing `.env`.
 
-### Frontend-only mode (no Java needed)
+### Offline by default (no server needed)
 
-```bash
-cd mobile
-npm run mock        # Expo with built-in sample data  (also: npm run web:mock for the browser)
-```
-The app shows a "Demo mode" banner and keeps everything in memory (resets on reload). Great for testing the UI.
+The mobile app **stores everything on the phone and works fully offline**: projects, claims, items, totals, certificate PDFs,
+logo and signature. Nothing needs the internet. (`EXPO_PUBLIC_DATA_MODE=local`, the default.)
+
+* **Back up / restore:** Settings → *Data & backup* → *Back up my data* saves a `.json` file you can send to yourself
+  (Drive, WhatsApp, email). *Restore from a backup file* brings it back, for example on a new phone.
+* **Start fresh / try it:** the same card has *Add the sample project* and *Erase all data on this phone*.
+* **Cloud mode (optional):** set `EXPO_PUBLIC_DATA_MODE=cloud` plus `EXPO_PUBLIC_API_URL` / `EXPO_PUBLIC_API_KEY` to use the
+  Java backend (Render + PostgreSQL) instead. Data in the two modes is separate.
 
 ### Tests
 
 ```bash
 npm test            # Jest (jest-expo): calculations, mock API, claim model, certificate HTML, components, errors
-npm run test:e2e    # optional browser smoke test of the whole UI (see the header of mobile/e2e/smoke.web.js)
+npm run test:e2e    # optional browser smoke test of the whole UI (see the header of mobile/e2e/smoke.web.js; start `npm run web:local` first)
 ```
 
 ## The shared test case
@@ -97,7 +100,7 @@ subTotal **111,150.00** · levy **7,780.50** · total **118,930.50** · grandTot
 | GET/POST | `/api/projects` | list / create |
 | GET/PUT/DELETE | `/api/projects/{id}` | |
 | GET/POST | `/api/projects/{id}/claims` | POST auto-increments week, pre-fills Balance B/F |
-| GET/PUT/DELETE | `/api/claims/{id}` | PUT = header (week, period, levy %, B/F, notes) |
+| GET/PUT/DELETE | `/api/claims/{id}` | PUT = header (week, period, markup %, B/F, notes). The markup % is the `levyPercent` field in the API. |
 | PUT | `/api/claims/{id}/items` | replace all line items (order = array order) |
 | POST | `/api/claims/{id}/duplicate` | next week, items copied, B/F recomputed |
 | PATCH | `/api/claims/{id}/status` | DRAFT → SUBMITTED → APPROVED → PAID (+ approver / payment) |
